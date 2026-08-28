@@ -157,10 +157,13 @@
 
             /* Grid */
             .card-grid {
+                --card-min: 200px;
                 display: grid;
-                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr));
                 gap: 20px;
                 margin-bottom: 40px;
+                /* Let the browser handle vertical scroll, we handle pinch. */
+                touch-action: pan-y;
             }
 
             .card-tile {
@@ -465,6 +468,57 @@
                 clearTimeout(toastTimer);
                 toastTimer = setTimeout(() => toastEl.classList.add("hidden"), 3000);
             }
+
+            // Pinch-to-zoom on the grid controls card size (not page zoom):
+            // pinch out → bigger cards (zoom in), pinch in → smaller cards (zoom out)
+            // so more cards fit per row. Preference persists in localStorage.
+            const CARD_MIN_DEFAULT = 200;
+            const CARD_MIN_MIN = 80;
+            const CARD_MIN_MAX = 400;
+            const CARD_MIN_KEY = "cardMin";
+
+            let cardMin = CARD_MIN_DEFAULT;
+            try {
+                const saved = parseFloat(localStorage.getItem(CARD_MIN_KEY));
+                if (!isNaN(saved) && saved > 0) cardMin = Math.min(CARD_MIN_MAX, Math.max(CARD_MIN_MIN, saved));
+            } catch (e) {}
+
+            function applyCardMin() {
+                grid.style.setProperty("--card-min", cardMin + "px");
+            }
+
+            let pinchStartDist = 0;
+            let pinchStartCardMin = 0;
+
+            function touchDist(t1, t2) {
+                return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
+            }
+
+            function pinchEnd() {
+                if (!pinchStartDist) return;
+                pinchStartDist = 0;
+                try { localStorage.setItem(CARD_MIN_KEY, String(cardMin)); } catch (e) {}
+            }
+
+            grid.addEventListener("touchstart", (e) => {
+                if (e.touches.length === 2) {
+                    pinchStartDist = touchDist(e.touches[0], e.touches[1]);
+                    pinchStartCardMin = cardMin;
+                }
+            });
+
+            grid.addEventListener("touchmove", (e) => {
+                if (e.touches.length !== 2 || !pinchStartDist) return;
+                e.preventDefault();
+                const dist = touchDist(e.touches[0], e.touches[1]);
+                cardMin = Math.min(CARD_MIN_MAX, Math.max(CARD_MIN_MIN, (pinchStartCardMin * dist) / pinchStartDist));
+                applyCardMin();
+            }, { passive: false });
+
+            grid.addEventListener("touchend", pinchEnd);
+            grid.addEventListener("touchcancel", pinchEnd);
+
+            applyCardMin();
 
             // Scryfall rate-limits /cards/collection (metadata) to 2/sec (500ms).
             // /cards/collection returns image_uris.normal — a direct cards.scryfall.io
