@@ -1,0 +1,947 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Looking for Cards</title>
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+
+            body {
+                font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+                background: #1a1a2e;
+                color: #eee;
+                min-height: 100vh;
+                padding: 20px;
+            }
+
+            .hidden {
+                display: none !important;
+            }
+
+            /* Screen A */
+            #screen-a {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                min-height: 80vh;
+            }
+
+            .name-card {
+                background: #16213e;
+                border-radius: 12px;
+                padding: 40px;
+                max-width: 360px;
+                width: 100%;
+                text-align: center;
+            }
+
+            .name-card h1 {
+                margin-bottom: 8px;
+                color: #e94560;
+            }
+
+            .name-card p {
+                color: #888;
+                margin-bottom: 20px;
+            }
+
+            .name-card input {
+                width: 100%;
+                padding: 12px 16px;
+                font-size: 16px;
+                border: 2px solid #333;
+                border-radius: 8px;
+                background: #1a1a2e;
+                color: #eee;
+                margin-bottom: 16px;
+            }
+
+            .name-card input:focus {
+                outline: none;
+                border-color: #e94560;
+            }
+
+            .name-card button {
+                width: 100%;
+                padding: 12px;
+                font-size: 16px;
+                background: #e94560;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+            }
+
+            .name-card button:disabled {
+                background: #555;
+                cursor: not-allowed;
+            }
+
+            /* Top bar */
+            .topbar {
+                position: sticky;
+                top: 0;
+                background: #1a1a2e;
+                padding: 12px 0;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 10px;
+                align-items: center;
+                margin-bottom: 20px;
+                z-index: 10;
+            }
+
+            .topbar .who {
+                font-weight: bold;
+                color: #e94560;
+            }
+
+            .topbar a {
+                color: #888;
+                text-decoration: none;
+                margin-right: 12px;
+                font-size: 13px;
+            }
+
+            .topbar a:hover {
+                color: #eee;
+            }
+
+            .topbar button,
+            .topbar input,
+            .topbar label {
+                padding: 8px 14px;
+                font-size: 14px;
+                border: 2px solid #333;
+                border-radius: 8px;
+                background: #16213e;
+                color: #eee;
+            }
+
+            .topbar button {
+                background: #e94560;
+                border: none;
+                cursor: pointer;
+            }
+
+            .topbar button:hover {
+                background: #ff6b6b;
+            }
+
+            .topbar input[type="search"] {
+                min-width: 140px;
+            }
+
+            .topbar input[type="search"]:focus {
+                outline: none;
+                border-color: #e94560;
+            }
+
+            .topbar label {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+
+            /* Grid */
+            .card-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+                gap: 20px;
+                margin-bottom: 40px;
+            }
+
+            .card-tile {
+                background: #16213e;
+                border-radius: 12px;
+                overflow: hidden;
+                position: relative;
+            }
+
+            .card-tile.claimed {
+                opacity: 0.7;
+            }
+
+            .img-wrap {
+                position: relative;
+                background: #0f1629;
+            }
+
+            .img-wrap img {
+                width: 100%;
+                height: auto;
+                display: block;
+            }
+
+            .card-tile.clickable .img-wrap {
+                cursor: pointer;
+            }
+
+            .card-tile.clickable .img-wrap:hover img {
+                filter: brightness(1.1);
+            }
+
+            .claimed-badge {
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                background: #e94560;
+                color: white;
+                font-size: 11px;
+                padding: 3px 8px;
+                border-radius: 4px;
+            }
+
+            .card-tile .name {
+                padding: 8px 10px 2px;
+                font-weight: bold;
+            }
+
+            .card-tile .set {
+                color: #888;
+                font-weight: normal;
+                font-size: 12px;
+            }
+
+            .card-tile .seeker,
+            .card-tile .giver {
+                padding: 1px 10px;
+                font-size: 12px;
+                color: #aaa;
+            }
+
+            .card-tile .giver {
+                padding-bottom: 6px;
+            }
+
+            .card-tile .actions {
+                padding: 8px 10px 12px;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 6px;
+            }
+
+            .card-tile .actions button {
+                flex: 1;
+                padding: 6px 8px;
+                font-size: 12px;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                background: #2a3450;
+                color: #eee;
+            }
+
+            .card-tile .actions button:hover {
+                background: #3a4470;
+            }
+
+            .show-more {
+                display: block;
+                margin: 0 auto 40px;
+                padding: 10px 30px;
+                background: #16213e;
+                color: #eee;
+                border: 2px solid #333;
+                border-radius: 8px;
+                cursor: pointer;
+                font-size: 14px;
+            }
+
+            .show-more:hover {
+                border-color: #e94560;
+            }
+
+            /* Add section */
+            .add-section {
+                max-width: 600px;
+                margin-bottom: 40px;
+            }
+
+            .add-section h2 {
+                margin-bottom: 10px;
+            }
+
+            .add-section textarea {
+                width: 100%;
+                min-height: 120px;
+                padding: 12px;
+                font-size: 14px;
+                font-family: inherit;
+                border: 2px solid #333;
+                border-radius: 8px;
+                background: #16213e;
+                color: #eee;
+                resize: vertical;
+            }
+
+            .add-section textarea:focus {
+                outline: none;
+                border-color: #e94560;
+            }
+
+            .add-section button {
+                margin-top: 10px;
+                padding: 10px 24px;
+                font-size: 14px;
+                background: #e94560;
+                color: white;
+                border: none;
+                border-radius: 8px;
+                cursor: pointer;
+            }
+
+            .add-section button:disabled {
+                background: #555;
+                cursor: not-allowed;
+            }
+
+            #add-progress {
+                margin-top: 10px;
+                color: #888;
+                font-size: 13px;
+            }
+
+            #add-results {
+                margin-top: 10px;
+                font-size: 13px;
+                line-height: 1.5;
+            }
+
+            #add-results .err {
+                color: #ff6b6b;
+            }
+
+            /* Toast */
+            .toast {
+                position: fixed;
+                bottom: 24px;
+                left: 50%;
+                transform: translateX(-50%);
+                background: #e94560;
+                color: white;
+                padding: 12px 20px;
+                border-radius: 8px;
+                font-size: 14px;
+                z-index: 100;
+                max-width: 90vw;
+            }
+
+            @media (max-width: 768px) {
+                .topbar {
+                    flex-direction: column;
+                    align-items: stretch;
+                }
+
+                .topbar input[type="search"] {
+                    min-width: 0;
+                }
+            }
+        </style>
+    </head>
+    <body>
+        <div id="screen-a" class="screen">
+            <div class="name-card">
+                <h1>Looking for Cards</h1>
+                <p>What's your name?</p>
+                <input id="name-input" type="text" placeholder="Your name" autocomplete="off" />
+                <button id="continue-btn" disabled>Continue</button>
+            </div>
+        </div>
+
+        <div id="screen-b" class="screen hidden">
+            <div class="topbar">
+                <span class="who">@<span id="current-user"></span></span>
+                <a id="change-link" href="#">change</a>
+                <button id="refresh-btn">Refresh</button>
+                <input id="card-filter" type="search" placeholder="card name" />
+                <input id="giver-filter" type="search" placeholder="giver name" />
+                <label><input id="hide-giver" type="checkbox" /> Hide giver found</label>
+            </div>
+            <div id="grid" class="card-grid"></div>
+            <button id="show-more" class="show-more hidden">Show more</button>
+
+            <div class="add-section">
+                <h2>I'm looking for the following cards</h2>
+                <textarea id="card-list" placeholder="One card per line, e.g.&#10;Lightning Bolt&#10;2 Counterspell&#10;Faerie Guidemother (ELD) 11"></textarea>
+                <button id="add-btn">Add cards</button>
+                <div id="add-progress"></div>
+                <div id="add-results"></div>
+            </div>
+        </div>
+
+        <div id="toast" class="toast hidden"></div>
+
+        <script>
+            let currentUser = null;
+            let allEntries = [];
+            let displayedCount = 0;
+            let currentFiltered = [];
+            let entriesById = {};
+            const PAGE_SIZE = 50;
+
+            const PLACEHOLDER =
+                "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='280'><rect width='100%25' height='100%25' fill='%230f1629'/><text x='50%25' y='50%25' fill='%23888' font-family='sans-serif' font-size='14' text-anchor='middle' dominant-baseline='middle'>no image</text></svg>";
+
+            const $ = (id) => document.getElementById(id);
+            const screenA = $("screen-a");
+            const screenB = $("screen-b");
+            const nameInput = $("name-input");
+            const continueBtn = $("continue-btn");
+            const currentUserEl = $("current-user");
+            const changeLink = $("change-link");
+            const refreshBtn = $("refresh-btn");
+            const cardFilter = $("card-filter");
+            const giverFilter = $("giver-filter");
+            const hideGiver = $("hide-giver");
+            const grid = $("grid");
+            const showMoreBtn = $("show-more");
+            const cardList = $("card-list");
+            const addBtn = $("add-btn");
+            const addProgress = $("add-progress");
+            const addResults = $("add-results");
+            const toastEl = $("toast");
+
+            function escapeHtml(s) {
+                return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+            }
+
+            function sleep(ms) {
+                return new Promise((r) => setTimeout(r, ms));
+            }
+
+            let toastTimer;
+            function toast(msg) {
+                toastEl.textContent = msg;
+                toastEl.classList.remove("hidden");
+                clearTimeout(toastTimer);
+                toastTimer = setTimeout(() => toastEl.classList.add("hidden"), 3000);
+            }
+
+            // Scryfall rate-limits /cards/collection (metadata) to 2/sec (500ms).
+            // /cards/collection returns image_uris.normal — a direct cards.scryfall.io
+            // URL which has NO rate limit, so we store it in the DB and use <img src>
+            // directly. This queue only paces the few metadata batch requests.
+            const SCRYFALL_GAP = 500;
+            const scryfallQueue = [];
+            let scryfallLastStart = 0;
+            let scryfallPumpPending = false;
+
+            function scryfallPump() {
+                scryfallPumpPending = false;
+                if (!scryfallQueue.length) return;
+                const wait = Math.max(0, SCRYFALL_GAP - (Date.now() - scryfallLastStart));
+                if (wait > 0) {
+                    scryfallPumpPending = true;
+                    setTimeout(scryfallPump, wait);
+                    return;
+                }
+                const job = scryfallQueue.shift();
+                scryfallLastStart = Date.now();
+                fetch(job.url, job.opts).then(job.resolve, job.reject);
+                if (scryfallQueue.length) {
+                    scryfallPumpPending = true;
+                    setTimeout(scryfallPump, SCRYFALL_GAP);
+                }
+            }
+
+            function scryfallFetch(url, opts) {
+                return new Promise((resolve, reject) => {
+                    scryfallQueue.push({ url, opts, resolve, reject });
+                    if (!scryfallPumpPending) scryfallPump();
+                });
+            }
+
+            window.imgFallback = function (img) {
+                img.onerror = null;
+                img.src = PLACEHOLDER;
+            };
+
+            // Scryfall requires exact= (not fuzzy=) when a set is specified.
+            function scryfallQuery(name, set) {
+                return set ? `exact=${encodeURIComponent(name)}&set=${encodeURIComponent(set)}` : `fuzzy=${encodeURIComponent(name)}`;
+            }
+
+            // /cards/collection rejects split/transform names ("Status // Statue") and
+            // only resolves the front face; /cards/named accepts the full name. Strip
+            // here so the batch endpoint finds split/transform cards.
+            function frontFaceName(name) {
+                return name.split("//")[0].trim();
+            }
+
+            function imageURL(name, set) {
+                return `https://api.scryfall.com/cards/named?${scryfallQuery(name, set)}&format=image&version=normal`;
+            }
+
+            // Scryfall's /cards/collection accepts up to 75 identifiers per POST and
+            // returns {data:[...cards], not_found:[...identifiers]}. Batching turns N
+            // requests into N/75 (270 cards -> 4 requests), staying under the 2/s limit.
+            function pairKey(p) {
+                return p.name + "|" + p.set + "|" + (p.collector_number || "");
+            }
+
+            function idKey(id) {
+                return (id.name || "").toLowerCase() + "\u0000" + (id.set || "").toLowerCase() + "\u0000" + (id.collector_number || "").toLowerCase();
+            }
+
+            async function postCollection(identifiers, depth = 0) {
+                return scryfallFetch("https://api.scryfall.com/cards/collection", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ identifiers }),
+                });
+            }
+
+            async function fetchMetadataBatch(chunk) {
+                const out = new Map();
+                const identifiers = chunk.map((p) => {
+                    const id = {};
+                    if (p.set && p.collector_number) {
+                        id.set = p.set;
+                        id.collector_number = p.collector_number;
+                    } else {
+                        id.name = frontFaceName(p.name);
+                        if (p.set) id.set = p.set;
+                    }
+                    return id;
+                });
+
+                let res;
+                try {
+                    res = await postCollection(identifiers);
+                } catch (e) {
+                    await sleep(500);
+                    try {
+                        res = await postCollection(identifiers);
+                    } catch (e2) {
+                        for (const p of chunk) out.set(pairKey(p), { error: "network error" });
+                        return out;
+                    }
+                }
+
+                if (res.status === 429 && depth < 2) {
+                    const retry = parseInt(res.headers.get("Retry-After") || "1", 10);
+                    await sleep(Math.max(retry, 1) * 1000);
+                    return fetchMetadataBatch(chunk, depth + 1);
+                }
+                if (!res.ok) {
+                    const msg = res.status === 404 ? "card not found" : "Scryfall error";
+                    for (const p of chunk) out.set(pairKey(p), { error: msg });
+                    return out;
+                }
+
+                const data = await res.json();
+                const notFoundKeys = new Set();
+                for (const nf of data.not_found || []) notFoundKeys.add(idKey(nf));
+
+                const cards = data.data || [];
+                let cardIdx = 0;
+                for (let j = 0; j < chunk.length; j++) {
+                    const p = chunk[j];
+                    const k = idKey(identifiers[j]);
+                    if (notFoundKeys.has(k)) {
+                        out.set(pairKey(p), { error: p.set ? "card or set not found" : "card not found" });
+                        notFoundKeys.delete(k);
+                        continue;
+                    }
+                    const card = cards[cardIdx++];
+                    if (p.set && typeof card.set === "string" && card.set.toUpperCase() !== p.set.toUpperCase()) {
+                        out.set(pairKey(p), { error: "set not found" });
+                    } else {
+                        const img = card.image_uris || (card.card_faces && card.card_faces[0] && card.card_faces[0].image_uris) || {};
+                        out.set(pairKey(p), {
+                            colors: (card.colors || []).join(""),
+                            type_line: card.type_line || "",
+                            image_url: img.normal || "",
+                        });
+                    }
+                }
+                return out;
+            }
+
+            function showScreenA() {
+                screenA.classList.remove("hidden");
+                screenB.classList.add("hidden");
+                nameInput.value = "";
+                nameInput.focus();
+            }
+
+            function showScreenB() {
+                screenA.classList.add("hidden");
+                screenB.classList.remove("hidden");
+                currentUserEl.textContent = currentUser;
+            }
+
+            continueBtn.onclick = () => {
+                const name = nameInput.value.trim();
+                if (!name) return;
+                currentUser = name;
+                history.replaceState(null, "", "?user=" + encodeURIComponent(currentUser));
+                showScreenB();
+                loadEntries();
+            };
+
+            nameInput.addEventListener("keydown", (e) => {
+                if (e.key === "Enter") continueBtn.click();
+            });
+            nameInput.addEventListener("input", () => {
+                continueBtn.disabled = !nameInput.value.trim();
+            });
+
+            changeLink.onclick = (e) => {
+                e.preventDefault();
+                currentUser = null;
+                history.replaceState(null, "", "/");
+                showScreenA();
+            };
+
+            refreshBtn.onclick = loadEntries;
+            cardFilter.addEventListener("input", applyFiltersAndRender);
+            giverFilter.addEventListener("input", applyFiltersAndRender);
+            hideGiver.addEventListener("change", applyFiltersAndRender);
+
+            showMoreBtn.onclick = () => {
+                const prev = displayedCount;
+                displayedCount += PAGE_SIZE;
+                appendTiles(currentFiltered.slice(prev, displayedCount));
+                showMoreBtn.classList.toggle("hidden", displayedCount >= currentFiltered.length);
+            };
+
+            async function loadEntries() {
+                try {
+                    const res = await fetch("/api/entries");
+                    if (!res.ok) throw new Error("failed");
+                    const data = await res.json();
+                    allEntries = data.entries || [];
+                    applyFiltersAndRender();
+                    backfillImageURLs();
+                } catch (e) {
+                    toast("Network error — try Refresh.");
+                }
+            }
+
+            async function backfillImageURLs() {
+                const missing = new Map();
+                for (const e of allEntries) {
+                    if (!e.card.image_url) {
+                        const k = pairKey(e.card);
+                        if (!missing.has(k)) missing.set(k, { name: e.card.name, set: e.card.set, collector_number: e.card.collector_number });
+                    }
+                }
+                if (!missing.size) return;
+                const pairs = [...missing.values()];
+                const meta = new Map();
+                const BATCH = 75;
+                for (let b = 0; b < Math.ceil(pairs.length / BATCH); b++) {
+                    const chunk = pairs.slice(b * BATCH, (b + 1) * BATCH);
+                    const part = await fetchMetadataBatch(chunk);
+                    for (const [k, v] of part) meta.set(k, v);
+                }
+                const updates = [];
+                for (const [k, p] of missing) {
+                    const m = meta.get(k);
+                    if (m && !m.error && m.image_url) updates.push({ name: p.name, set: p.set, collector_number: p.collector_number, image_url: m.image_url });
+                }
+                if (!updates.length) return;
+                try {
+                    await fetch("/api/cards/image-url", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ cards: updates }),
+                    });
+                    for (const u of updates) {
+                        const k = pairKey(u);
+                        for (const e of allEntries) {
+                            if (pairKey(e.card) === k) e.card.image_url = u.image_url;
+                        }
+                    }
+                    applyFiltersAndRender();
+                } catch (e) {}
+            }
+
+            function applyFiltersAndRender() {
+                const cardF = cardFilter.value.trim().toLowerCase();
+                const giverF = giverFilter.value.trim().toLowerCase();
+                const hide = hideGiver.checked;
+                currentFiltered = allEntries.filter((e) => {
+                    if (cardF && !e.card.name.toLowerCase().includes(cardF)) return false;
+                    if (giverF && (!e.giver || !e.giver.toLowerCase().includes(giverF))) return false;
+                    if (hide && e.giver !== "") return false;
+                    return true;
+                });
+                displayedCount = PAGE_SIZE;
+                render(currentFiltered.slice(0, displayedCount));
+                showMoreBtn.classList.toggle("hidden", displayedCount >= currentFiltered.length);
+            }
+
+            function render(entries) {
+                entriesById = {};
+                for (const e of entries) entriesById[e.id] = e;
+                grid.innerHTML = entries.map(tileHTML).join("");
+            }
+
+            function appendTiles(entries) {
+                for (const e of entries) entriesById[e.id] = e;
+                grid.insertAdjacentHTML("beforeend", entries.map(tileHTML).join(""));
+            }
+
+            function tileHTML(e) {
+                const clickable = e.giver === "" || e.giver === currentUser;
+                const claimed = e.giver && e.giver !== currentUser;
+                const setLabel = e.card.set ? ` <span class="set">[${escapeHtml(e.card.set)}${e.card.collector_number ? " " + escapeHtml(e.card.collector_number) : ""}]</span>` : "";
+                const giverLabel = e.giver ? escapeHtml(e.giver) : "—";
+                const imgAction = clickable ? "data-action='toggle-giver'" : "";
+
+                let actions = "";
+                if (e.seeker === currentUser) {
+                    actions += `<button data-action='cancel'>Cancel</button>`;
+                }
+                if (e.giver && (e.seeker === currentUser || e.giver === currentUser)) {
+                    actions += `<button data-action='fulfilled'>Fulfilled</button>`;
+                }
+                if (e.seeker !== currentUser && (e.giver === "" || e.giver === currentUser)) {
+                    actions += `<button data-action='toggle-giver'>${e.giver === currentUser ? "Ungive" : "Give"}</button>`;
+                }
+
+                return `
+                <div class='card-tile${clickable ? " clickable" : ""}${claimed ? " claimed" : ""}' data-id='${e.id}'>
+                    <div class='img-wrap'>
+                        <img src="${escapeHtml(e.card.image_url || imageURL(e.card.name, e.card.set))}" loading="lazy" alt="${escapeHtml(e.card.name)}" ${imgAction} onerror="imgFallback(this)" />
+                        ${claimed ? "<div class='claimed-badge'>claimed</div>" : ""}
+                    </div>
+                    <div class='name'>${escapeHtml(e.card.name)}${setLabel}</div>
+                    <div class='seeker'>looking for: ${escapeHtml(e.seeker)}</div>
+                    <div class='giver'>giver: ${giverLabel}</div>
+                    <div class='actions'>${actions}</div>
+                </div>`;
+            }
+
+            grid.addEventListener("click", (ev) => {
+                const actionEl = ev.target.closest("[data-action]");
+                if (!actionEl) return;
+                const tile = ev.target.closest(".card-tile");
+                if (!tile) return;
+                const id = parseInt(tile.dataset.id, 10);
+                const entry = entriesById[id];
+                if (!entry) return;
+                const action = actionEl.dataset.action;
+                if (action === "toggle-giver") {
+                    if (entry.giver === "") postGiver(entry);
+                    else if (entry.giver === currentUser) deleteGiver(entry);
+                } else if (action === "cancel" || action === "fulfilled") {
+                    removeEntry(entry);
+                }
+            });
+
+            async function postGiver(entry) {
+                try {
+                    const res = await fetch(`/api/entries/${entry.id}/giver?user=${encodeURIComponent(currentUser)}`, { method: "POST" });
+                    if (res.status === 409) {
+                        const data = await res.json();
+                        toast(`Sorry — ${data.entry?.giver || "someone"} is already giving this card.`);
+                        loadEntries();
+                        return;
+                    }
+                    if (res.status === 404) {
+                        toast("This entry is no longer available.");
+                        loadEntries();
+                        return;
+                    }
+                    if (!res.ok) throw new Error("failed");
+                    loadEntries();
+                } catch (e) {
+                    toast("Network error — try Refresh.");
+                }
+            }
+
+            async function deleteGiver(entry) {
+                try {
+                    const res = await fetch(`/api/entries/${entry.id}/giver?user=${encodeURIComponent(currentUser)}`, { method: "DELETE" });
+                    if (res.status === 404) {
+                        toast("This entry is no longer available.");
+                        loadEntries();
+                        return;
+                    }
+                    if (!res.ok && res.status !== 204) throw new Error("failed");
+                    loadEntries();
+                } catch (e) {
+                    toast("Network error — try Refresh.");
+                }
+            }
+
+            async function removeEntry(entry) {
+                try {
+                    const res = await fetch(`/api/entries/${entry.id}/remove?user=${encodeURIComponent(currentUser)}`, { method: "POST" });
+                    if (res.status === 403) {
+                        toast("You can only remove your own entries.");
+                        return;
+                    }
+                    if (res.status === 404) {
+                        toast("This entry is no longer available.");
+                        loadEntries();
+                        return;
+                    }
+                    if (!res.ok && res.status !== 204) throw new Error("failed");
+                    loadEntries();
+                } catch (e) {
+                    toast("Network error — try Refresh.");
+                }
+            }
+
+            addBtn.onclick = addCards;
+
+            async function addCards() {
+                addBtn.disabled = true;
+                addProgress.textContent = "";
+                addResults.innerHTML = "";
+                try {
+                    await processAdd();
+                } finally {
+                    addBtn.disabled = false;
+                }
+            }
+
+            async function processAdd() {
+                const text = cardList.value;
+                const rawLines = text.split("\n");
+                const units = [];
+                const failedLines = new Set();
+                const lineErrors = [];
+
+                for (let i = 0; i < rawLines.length; i++) {
+                    const line = rawLines[i].trim();
+                    if (!line) continue;
+                    const m = line.match(/^\s*(\d+)\s*x?\s+(.*)$/);
+                    let qty = 1;
+                    let rest = line;
+                    if (m) {
+                        qty = parseInt(m[1], 10);
+                        rest = m[2].trim();
+                    }
+                    const parsed = rest.match(/^(.*?)\s*(?:\((\w+)\)(?:\s+(\S+))?)?$/);
+                    const name = (parsed[1] || "").trim();
+                    const set = (parsed[2] || "").toUpperCase();
+                    const collectorNumber = (parsed[3] || "").trim();
+                    if (!name) {
+                        failedLines.add(i);
+                        lineErrors.push({ line: i, name: "", error: "empty name" });
+                        continue;
+                    }
+                    for (let q = 0; q < qty; q++) units.push({ sourceLine: i, name, set, collector_number: collectorNumber });
+                }
+
+                if (units.length === 0) {
+                    addResults.innerHTML = "No cards to add.";
+                    return;
+                }
+
+                const seen = new Map();
+                for (const u of units) {
+                    const key = pairKey(u);
+                    if (!seen.has(key)) seen.set(key, { name: u.name, set: u.set });
+                }
+                const pairs = [...seen.values()];
+
+                const meta = new Map();
+                const BATCH = 75;
+                const batches = Math.ceil(pairs.length / BATCH);
+                for (let b = 0; b < batches; b++) {
+                    const chunk = pairs.slice(b * BATCH, (b + 1) * BATCH);
+                    addProgress.textContent = `Resolving ${b + 1}/${batches} (${chunk.length} cards)…`;
+                    const part = await fetchMetadataBatch(chunk);
+                    for (const [k, v] of part) meta.set(k, v);
+                }
+
+                const cards = [];
+                const cardSources = [];
+                for (const u of units) {
+                    const m = meta.get(pairKey(u));
+                    if (m && m.error) {
+                        failedLines.add(u.sourceLine);
+                        lineErrors.push({ line: u.sourceLine, name: u.name, error: m.error });
+                    } else if (m) {
+                        cards.push({ name: u.name, set: u.set, collector_number: u.collector_number, colors: m.colors, type_line: m.type_line, image_url: m.image_url });
+                        cardSources.push(u.sourceLine);
+                    }
+                }
+
+                let created = 0;
+                if (cards.length > 0) {
+                    let res;
+                    try {
+                        res = await fetch(`/api/entries?user=${encodeURIComponent(currentUser)}`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ cards }),
+                        });
+                    } catch (e) {
+                        toast("Network error — try Refresh.");
+                        return;
+                    }
+                    const data = await res.json().catch(() => ({}));
+                    if (res.ok) {
+                        created = data.created || 0;
+                        for (const e of data.errors || []) {
+                            const src = cardSources[e.line];
+                            if (src !== undefined) {
+                                failedLines.add(src);
+                                lineErrors.push({ line: src, name: cards[e.line]?.name || "", error: e.error });
+                            }
+                        }
+                    } else {
+                        toast(data.error || "Failed to add cards.");
+                        return;
+                    }
+                }
+
+                addProgress.textContent = "";
+                let html = `Added ${created} card${created === 1 ? "" : "s"}.`;
+                if (lineErrors.length) {
+                    html += `<br><span class="err">Failed lines:</span>`;
+                    for (const e of lineErrors) {
+                        html += `<br><span class="err">• ${escapeHtml(e.name || "(empty)")} — ${escapeHtml(e.error)}</span>`;
+                    }
+                }
+                addResults.innerHTML = html;
+
+                if (failedLines.size > 0) {
+                    cardList.value = rawLines.filter((_, i) => failedLines.has(i)).join("\n");
+                } else {
+                    cardList.value = "";
+                }
+
+                loadEntries();
+            }
+
+            function syncFromURL() {
+                const p = new URLSearchParams(location.search);
+                const u = p.get("user") || null;
+                if (u && !currentUser) {
+                    currentUser = u;
+                    showScreenB();
+                    loadEntries();
+                } else if (!u && currentUser) {
+                    currentUser = null;
+                    showScreenA();
+                }
+            }
+            window.addEventListener("popstate", syncFromURL);
+
+            const params = new URLSearchParams(location.search);
+            currentUser = params.get("user") || null;
+            if (currentUser) {
+                showScreenB();
+                loadEntries();
+            } else {
+                showScreenA();
+            }
+        </script>
+    </body>
+</html>
