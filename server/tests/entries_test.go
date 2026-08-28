@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"testing"
 
 	"github.com/diligence-dev/looking-for-cards/server"
@@ -12,7 +13,7 @@ import (
 
 func seedEntry(t *testing.T, db *sql.DB, name, set, collectorNumber, colors, typeLine, seeker string) int64 {
 	t.Helper()
-	cardID, err := server.UpsertCard(db, name, set, collectorNumber, colors, typeLine, "")
+	cardID, err := server.UpsertCard(db, name, set, collectorNumber, colors, typeLine, 0, "")
 	if err != nil {
 		t.Fatalf("UpsertCard failed: %v", err)
 	}
@@ -172,6 +173,114 @@ func TestList_Ordering(t *testing.T) {
 	for i, want := range expected {
 		if got[i] != want {
 			t.Fatalf("position %d: expected %q, got %q (full order: %v)", i, want, got[i], got)
+		}
+	}
+}
+
+func TestList_OrderingByManaValue(t *testing.T) {
+	srv := newTestServer(t)
+	cards := []map[string]any{
+		{"name": "Cherry", "colors": "W", "type_line": "Creature", "mana_value": 1.0},
+		{"name": "Apple", "colors": "W", "type_line": "Creature", "mana_value": 2.0},
+		{"name": "Banana", "colors": "W", "type_line": "Creature", "mana_value": 2.0},
+	}
+	res := postCards(t, srv, "alice", cards)
+	if res.Status != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", res.Status, res.Body)
+	}
+	listRes := doRequest(t, srv, http.MethodGet, "/api/entries", nil)
+	entries := decodeEntries(t, listRes.Body)
+	got := entryNames(entries)
+	expected := []string{"Cherry", "Apple", "Banana"}
+	if len(got) != len(expected) {
+		t.Fatalf("expected %d entries, got %d (%v)", len(expected), len(got), got)
+	}
+	for i, want := range expected {
+		if got[i] != want {
+			t.Fatalf("position %d: expected %q, got %q (full: %v)", i, want, got[i], got)
+		}
+	}
+}
+
+func TestCardMetadata_BackfillManaValueUpdatesSort(t *testing.T) {
+	srv := newTestServer(t)
+	db := srv.DB()
+	seedEntry(t, db, "Apple", "", "", "W", "Creature", "alice")
+	seedEntry(t, db, "Cherry", "", "", "W", "Creature", "alice")
+
+	res := doRequest(t, srv, http.MethodPost, "/api/cards/metadata", map[string]any{
+		"cards": []map[string]any{
+			{"name": "Apple", "set": "", "collector_number": "", "mana_value": 2.0},
+			{"name": "Cherry", "set": "", "collector_number": "", "mana_value": 1.0},
+		},
+	})
+	if res.Status != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", res.Status, res.Body)
+	}
+
+	listRes := doRequest(t, srv, http.MethodGet, "/api/entries", nil)
+	entries := decodeEntries(t, listRes.Body)
+	got := entryNames(entries)
+	expected := []string{"Cherry", "Apple"}
+	if len(got) != len(expected) {
+		t.Fatalf("expected %d entries, got %d (%v)", len(expected), len(got), got)
+	}
+	for i, want := range expected {
+		if got[i] != want {
+			t.Fatalf("position %d: expected %q, got %q (full: %v)", i, want, got[i], got)
+		}
+	}
+}
+
+func TestMigrate_ManaValueNullableConvertsLegacyZero(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	db, err := server.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	db.Close()
+
+	db, err = sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if _, err := db.Exec(`DROP INDEX IF EXISTS idx_cards_sort`); err != nil {
+		t.Fatalf("drop index: %v", err)
+	}
+	if _, err := db.Exec(`ALTER TABLE cards DROP COLUMN mana_value`); err != nil {
+		t.Fatalf("drop mana_value: %v", err)
+	}
+	if _, err := db.Exec(`ALTER TABLE cards ADD COLUMN mana_value REAL NOT NULL DEFAULT 0`); err != nil {
+		t.Fatalf("readd legacy mana_value: %v", err)
+	}
+	db.Exec(`INSERT INTO cards (name, set_code, collector_number, colors, type_line, mana_value, color_sort_key, type_sort_key) VALUES ('Zero','','','','Land',0,5,6)`)
+	db.Exec(`INSERT INTO cards (name, set_code, collector_number, colors, type_line, mana_value, color_sort_key, type_sort_key) VALUES ('Two','','','','Creature',2,0,1)`)
+	db.Close()
+
+	db2, err := server.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB again: %v", err)
+	}
+	defer db2.Close()
+
+	var notnull int
+	if err := db2.QueryRow(`SELECT "notnull" FROM pragma_table_info('cards') WHERE name='mana_value'`).Scan(&notnull); err != nil {
+		t.Fatalf("pragma: %v", err)
+	}
+	if notnull != 0 {
+		t.Fatalf("expected mana_value nullable after migration, got notnull=%d", notnull)
+	}
+	for _, c := range []struct{ name string; valid bool }{
+		{"Zero", false},
+		{"Two", true},
+	} {
+		var mv sql.NullFloat64
+		if err := db2.QueryRow("SELECT mana_value FROM cards WHERE name=?", c.name).Scan(&mv); err != nil {
+			t.Fatalf("read %s: %v", c.name, err)
+		}
+		if mv.Valid != c.valid {
+			t.Errorf("%s: expected valid=%v, got valid=%v (val=%v)", c.name, c.valid, mv.Valid, mv.Float64)
 		}
 	}
 }
@@ -367,7 +476,7 @@ func TestCardImageURLs_BackfillUpdatesAndExposesURL(t *testing.T) {
 	}
 
 	imgURL := "https://cards.scryfall.io/normal/front/xx.jpg"
-	backfillRes := doRequest(t, srv, http.MethodPost, "/api/cards/image-url", map[string]any{
+	backfillRes := doRequest(t, srv, http.MethodPost, "/api/cards/metadata", map[string]any{
 		"cards": []map[string]any{
 			{"name": "Bolt", "set": "", "image_url": imgURL},
 		},
@@ -477,7 +586,7 @@ func TestCardImageURLs_BackfillByCollectorNumber(t *testing.T) {
 	seedEntry(t, srv.DB(), "Bolt", "LEA", "64", "R", "Instant", "alice")
 
 	imgURL63 := "https://cards.scryfall.io/normal/front/63.jpg"
-	backfillRes := doRequest(t, srv, http.MethodPost, "/api/cards/image-url", map[string]any{
+	backfillRes := doRequest(t, srv, http.MethodPost, "/api/cards/metadata", map[string]any{
 		"cards": []map[string]any{
 			{"name": "Bolt", "set": "LEA", "collector_number": "63", "image_url": imgURL63},
 		},

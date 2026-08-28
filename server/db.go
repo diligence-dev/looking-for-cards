@@ -8,15 +8,16 @@ import (
 )
 
 type Card struct {
-	ID             int    `json:"-"`
-	Name           string `json:"name"`
-	SetCode        string `json:"set"`
-	CollectorNumber string `json:"collector_number"`
-	Colors         string `json:"colors"`
-	TypeLine       string `json:"type_line"`
-	ImageURL       string `json:"image_url"`
-	ColorSortKey   int    `json:"-"`
-	TypeSortKey    int    `json:"-"`
+	ID              int      `json:"-"`
+	Name            string   `json:"name"`
+	SetCode         string   `json:"set"`
+	CollectorNumber string   `json:"collector_number"`
+	Colors          string   `json:"colors"`
+	TypeLine        string   `json:"type_line"`
+	ManaValue       *float64 `json:"mana_value"`
+	ImageURL        string   `json:"image_url"`
+	ColorSortKey    int      `json:"-"`
+	TypeSortKey     int      `json:"-"`
 }
 
 type Entry struct {
@@ -43,13 +44,14 @@ func InitDB(path string) (*sql.DB, error) {
 			collector_number TEXT NOT NULL DEFAULT '',
 			colors          TEXT NOT NULL DEFAULT '',
 			type_line       TEXT NOT NULL DEFAULT '',
+			mana_value      REAL,
 			image_url       TEXT NOT NULL DEFAULT '',
 			color_sort_key  INTEGER NOT NULL DEFAULT 5,
 			type_sort_key   INTEGER NOT NULL DEFAULT 8,
 			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(name, set_code, collector_number)
 		);
-		CREATE INDEX IF NOT EXISTS idx_cards_sort ON cards(color_sort_key, type_sort_key, name);
+		CREATE INDEX IF NOT EXISTS idx_cards_sort ON cards(color_sort_key, type_sort_key, mana_value, name);
 
 		CREATE TABLE IF NOT EXISTS entries (
 			id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -68,6 +70,8 @@ func InitDB(path string) (*sql.DB, error) {
 
 	migrateAddImageURL(db)
 	migrateAddCollectorNumber(db)
+	migrateAddManaValue(db)
+	migrateManaValueNullable(db)
 
 	return db, nil
 }
@@ -96,29 +100,76 @@ func migrateAddCollectorNumber(db *sql.DB) {
 			collector_number TEXT NOT NULL DEFAULT '',
 			colors          TEXT NOT NULL DEFAULT '',
 			type_line       TEXT NOT NULL DEFAULT '',
+			mana_value      REAL,
 			image_url       TEXT NOT NULL DEFAULT '',
 			color_sort_key  INTEGER NOT NULL DEFAULT 5,
 			type_sort_key   INTEGER NOT NULL DEFAULT 8,
 			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
 			UNIQUE(name, set_code, collector_number)
 		);
-		INSERT INTO cards_new (id, name, set_code, collector_number, colors, type_line, image_url, color_sort_key, type_sort_key, created_at)
-		SELECT id, name, set_code, '', colors, type_line, image_url, color_sort_key, type_sort_key, created_at FROM cards;
+		INSERT INTO cards_new (id, name, set_code, collector_number, colors, type_line, mana_value, image_url, color_sort_key, type_sort_key, created_at)
+		SELECT id, name, set_code, '', colors, type_line, NULL, image_url, color_sort_key, type_sort_key, created_at FROM cards;
 		DROP TABLE cards;
 		ALTER TABLE cards_new RENAME TO cards;
-		CREATE INDEX idx_cards_sort ON cards(color_sort_key, type_sort_key, name);
+		CREATE INDEX idx_cards_sort ON cards(color_sort_key, type_sort_key, mana_value, name);
 		COMMIT;
 	`)
 }
 
-func UpsertCard(db *sql.DB, name, setCode, collectorNumber, colors, typeLine, imageURL string) (int, error) {
+func migrateAddManaValue(db *sql.DB) {
+	row := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name='mana_value'")
+	var count int
+	if err := row.Scan(&count); err != nil || count > 0 {
+		return
+	}
+	db.Exec(`ALTER TABLE cards ADD COLUMN mana_value REAL`)
+}
+
+// migrateManaValueNullable converts a legacy NOT NULL DEFAULT 0 mana_value
+// column (from the first iteration of this feature) into a nullable one, and
+// rewrites existing 0s to NULL so the frontend backfills the real value from
+// Scryfall. Real 0-cmc cards added through the add flow are untouched (they
+// carry a non-zero path only if they had a real value; a true 0 re-backfills
+// harmlessly to 0).
+func migrateManaValueNullable(db *sql.DB) {
+	row := db.QueryRow(`SELECT "notnull" FROM pragma_table_info('cards') WHERE name='mana_value'`)
+	var notnull int
+	if err := row.Scan(&notnull); err != nil || notnull == 0 {
+		return
+	}
+	db.Exec(`
+		BEGIN;
+		CREATE TABLE cards_mv (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			name            TEXT NOT NULL,
+			set_code        TEXT NOT NULL DEFAULT '',
+			collector_number TEXT NOT NULL DEFAULT '',
+			colors          TEXT NOT NULL DEFAULT '',
+			type_line       TEXT NOT NULL DEFAULT '',
+			mana_value      REAL,
+			image_url       TEXT NOT NULL DEFAULT '',
+			color_sort_key  INTEGER NOT NULL DEFAULT 5,
+			type_sort_key   INTEGER NOT NULL DEFAULT 8,
+			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+			UNIQUE(name, set_code, collector_number)
+		);
+		INSERT INTO cards_mv (id, name, set_code, collector_number, colors, type_line, mana_value, image_url, color_sort_key, type_sort_key, created_at)
+		SELECT id, name, set_code, collector_number, colors, type_line, NULLIF(mana_value, 0), image_url, color_sort_key, type_sort_key, created_at FROM cards;
+		DROP TABLE cards;
+		ALTER TABLE cards_mv RENAME TO cards;
+		CREATE INDEX idx_cards_sort ON cards(color_sort_key, type_sort_key, mana_value, name);
+		COMMIT;
+	`)
+}
+
+func UpsertCard(db *sql.DB, name, setCode, collectorNumber, colors, typeLine string, manaValue float64, imageURL string) (int, error) {
 	colorKey := ColorSortKey(colors)
 	typeKey := TypeSortKey(typeLine)
 	_, err := db.Exec(`
-		INSERT INTO cards (name, set_code, collector_number, colors, type_line, image_url, color_sort_key, type_sort_key)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO cards (name, set_code, collector_number, colors, type_line, mana_value, image_url, color_sort_key, type_sort_key)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(name, set_code, collector_number) DO NOTHING
-	`, name, setCode, collectorNumber, colors, typeLine, imageURL, colorKey, typeKey)
+	`, name, setCode, collectorNumber, colors, typeLine, manaValue, imageURL, colorKey, typeKey)
 	if err != nil {
 		return 0, err
 	}
@@ -127,13 +178,13 @@ func UpsertCard(db *sql.DB, name, setCode, collectorNumber, colors, typeLine, im
 	return id, err
 }
 
-func UpdateCardImageURLs(db *sql.DB, cards []Card) error {
+func UpdateCardMetadata(db *sql.DB, cards []Card) error {
 	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	for _, c := range cards {
-		if _, err := tx.Exec(`UPDATE cards SET image_url=? WHERE name=? AND set_code=? AND collector_number=?`, c.ImageURL, c.Name, c.SetCode, c.CollectorNumber); err != nil {
+		if _, err := tx.Exec(`UPDATE cards SET image_url=?, mana_value=? WHERE name=? AND set_code=? AND collector_number=?`, c.ImageURL, c.ManaValue, c.Name, c.SetCode, c.CollectorNumber); err != nil {
 			tx.Rollback()
 			return err
 		}
@@ -152,20 +203,25 @@ func AddEntry(db *sql.DB, cardID int, seeker string) (int64, error) {
 const entrySelectCols = `
 	entries.id, entries.seeker_name, entries.giver_name, entries.created_at,
 	cards.id, cards.name, cards.set_code, cards.collector_number, cards.colors, cards.type_line,
-	cards.image_url, cards.color_sort_key, cards.type_sort_key
+	cards.mana_value, cards.image_url, cards.color_sort_key, cards.type_sort_key
 `
 
 func scanEntry(scanner interface{ Scan(...interface{}) error }, e *Entry) error {
 	var giver sql.NullString
+	var mv sql.NullFloat64
 	err := scanner.Scan(
 		&e.ID, &e.SeekerName, &giver, &e.CreatedAt,
 		&e.Card.ID, &e.Card.Name, &e.Card.SetCode, &e.Card.CollectorNumber, &e.Card.Colors, &e.Card.TypeLine,
-		&e.Card.ImageURL, &e.Card.ColorSortKey, &e.Card.TypeSortKey,
+		&mv, &e.Card.ImageURL, &e.Card.ColorSortKey, &e.Card.TypeSortKey,
 	)
 	if err != nil {
 		return err
 	}
 	e.GiverName = giver.String
+	if mv.Valid {
+		v := mv.Float64
+		e.Card.ManaValue = &v
+	}
 	return nil
 }
 
@@ -186,7 +242,7 @@ func ListEntries(db *sql.DB) ([]Entry, error) {
 	rows, err := db.Query(`
 		SELECT `+entrySelectCols+`
 		FROM entries JOIN cards ON entries.card_id = cards.id
-		ORDER BY cards.color_sort_key, cards.type_sort_key, cards.name, entries.created_at, entries.id
+		ORDER BY cards.color_sort_key, cards.type_sort_key, cards.mana_value, cards.name, entries.created_at, entries.id
 	`)
 	if err != nil {
 		return nil, err

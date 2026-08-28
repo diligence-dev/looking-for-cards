@@ -19,12 +19,13 @@ func sendJSONError(w http.ResponseWriter, message string, statusCode int) {
 }
 
 type addCard struct {
-	Name            string `json:"name"`
-	Set             string `json:"set"`
-	CollectorNumber string `json:"collector_number"`
-	Colors          string `json:"colors"`
-	TypeLine        string `json:"type_line"`
-	ImageURL        string `json:"image_url"`
+	Name            string  `json:"name"`
+	Set             string  `json:"set"`
+	CollectorNumber string  `json:"collector_number"`
+	Colors          string  `json:"colors"`
+	TypeLine        string  `json:"type_line"`
+	ManaValue       float64 `json:"mana_value"`
+	ImageURL        string  `json:"image_url"`
 }
 
 type addRequest struct {
@@ -92,7 +93,7 @@ func (s *Server) addEntries(w http.ResponseWriter, r *http.Request) {
 			errs = append(errs, addError{Line: i, Name: "", Error: "empty name"})
 			continue
 		}
-		cardID, err := UpsertCard(s.db, c.Name, c.Set, c.CollectorNumber, c.Colors, c.TypeLine, c.ImageURL)
+		cardID, err := UpsertCard(s.db, c.Name, c.Set, c.CollectorNumber, c.Colors, c.TypeLine, c.ManaValue, c.ImageURL)
 		if err != nil {
 			log.Printf("UpsertCard failed for %q: %v", c.Name, err)
 			errs = append(errs, addError{Line: i, Name: c.Name, Error: "database error"})
@@ -204,7 +205,7 @@ func (s *Server) handleRemoveEntry(w http.ResponseWriter, r *http.Request) {
 	sendJSONError(w, "entry not found", http.StatusNotFound)
 }
 
-func (s *Server) handleCardImageURLs(w http.ResponseWriter, r *http.Request) {
+func (s *Server) handleCardMetadata(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		sendJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
@@ -216,9 +217,9 @@ func (s *Server) handleCardImageURLs(w http.ResponseWriter, r *http.Request) {
 		sendJSONError(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
-	if err := UpdateCardImageURLs(s.db, req.Cards); err != nil {
-		log.Printf("UpdateCardImageURLs failed: %v", err)
-		sendJSONError(w, "failed to update image urls", http.StatusInternalServerError)
+	if err := UpdateCardMetadata(s.db, req.Cards); err != nil {
+		log.Printf("UpdateCardMetadata failed: %v", err)
+		sendJSONError(w, "failed to update card metadata", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -66,12 +66,13 @@ Only `github.com/mattn/go-sqlite3` (CGO). No uuid, no image libs, no SMTP.
 | `collector_number` | TEXT | `""` = none specified; Scryfall collector number (string, may contain letters/`★`) |
 | `colors` | TEXT | Concatenated color letters, e.g. `"R"`, `"WU"`, `""` = colorless |
 | `type_line` | TEXT | Scryfall type line |
+| `mana_value` | REAL | Scryfall `cmc`; `NULL` = unknown (legacy card not yet backfilled) |
 | `image_url` | TEXT | Direct `cards.scryfall.io` image URL (no rate limit); `""` = not yet resolved |
 | `color_sort_key` | INTEGER | Computed by `ColorSortKey` (default 5) |
 | `type_sort_key` | INTEGER | Computed by `TypeSortKey` (default 8) |
 | `created_at` | DATETIME | Default CURRENT_TIMESTAMP |
 
-Index `idx_cards_sort(color_sort_key, type_sort_key, name)`.
+Index `idx_cards_sort(color_sort_key, type_sort_key, mana_value, name)`.
 
 `entries` — one unit-sought row. Multiple rows may reference the same `card_id` (2 Lightning Bolts wanted = 2 rows):
 
@@ -87,7 +88,7 @@ Indexes on `seeker_name`, `giver_name`, `card_id`.
 
 ### Go model types
 
-`Card` exposes `name`, `set`, `collector_number`, `colors`, `type_line`, `image_url` (JSON); `id` and sort keys are `json:"-"`. `Entry` exposes `id`, nested `card`, `seeker`, `giver` (`""` when NULL), `created_at`.
+`Card` exposes `name`, `set`, `collector_number`, `colors`, `type_line`, `mana_value` (JSON `null` when unknown), `image_url` (JSON); `id` and sort keys are `json:"-"`. `Entry` exposes `id`, nested `card`, `seeker`, `giver` (`""` when NULL), `created_at`.
 
 ## Sort-key computation (`server/sortkeys.go`)
 
@@ -108,7 +109,7 @@ All mutating endpoints take the actor's name from `?user=<name>` (no auth; empty
 | `POST` | `/api/entries/{id}/giver?user=<name>` | `200` updated entry JSON | `409 {"error":"taken","entry":{…}}` if another giver holds it; `404` if gone; `400` |
 | `DELETE` | `/api/entries/{id}/giver?user=<name>` | `204` | `404` if gone or requester isn't the giver; `400` |
 | `POST` | `/api/entries/{id}/remove?user=<name>` | `204` | `403` if requester is neither seeker nor giver; `404` if gone; `400` |
-| `POST` | `/api/cards/image-url` | `204` (bulk-updates `cards.image_url` from body `{"cards":[{name,set,collector_number,image_url}]}`) | `400` bad JSON |
+| `POST` | `/api/cards/metadata` | `204` (bulk-updates `cards.image_url` + `cards.mana_value` from body `{"cards":[{name,set,collector_number,image_url,mana_value}]}`) | `400` bad JSON |
 | `GET` | `/` | Embedded SPA | — |
 
 - `SetGiver` is idempotent (re-claiming your own slot → 200) and allows self-offer (seeker may be the giver). It uses `UPDATE ... WHERE id=? AND (giver_name IS NULL OR giver_name=?)`; on zero rows affected, it re-reads to distinguish "taken by another" (409, current entry returned) from "not found" (404).
@@ -116,7 +117,7 @@ All mutating endpoints take the actor's name from `?user=<name>` (no auth; empty
 
 ## Ordering
 
-`ListEntries` sorts by `cards.color_sort_key, cards.type_sort_key, cards.name, entries.created_at, entries.id`. Color order: W, U, B, R, G, colorless, multicolor. Type order: Planeswalker, Creature, Artifact, Enchantment, Instant, Sorcery, Land, Battle. The server returns **all** entries (no pagination) because client-side filters need the full set.
+`ListEntries` sorts by `cards.color_sort_key, cards.type_sort_key, cards.mana_value, cards.name, entries.created_at, entries.id`. SQL `NULL` mana values sort first (treated as 0), so legacy cards without a resolved `cmc` appear before higher-cost same-color-and-type cards until backfilled. Color order: W, U, B, R, G, colorless, multicolor. Type order: Planeswalker, Creature, Artifact, Enchantment, Instant, Sorcery, Land, Battle. Within the same color and type, cards rise by mana value (ascending), then name (A–Z). The server returns **all** entries (no pagination) because client-side filters need the full set.
 
 ## Frontend (`frontend/index.html`)
 
@@ -124,14 +125,14 @@ Single file, inline CSS + JS, dark theme (`#1a1a2e` / `#eee` / accent `#e94560`)
 
 - **Screen A** (name prompt): shown when URL has no `?user=`. On submit, sets `?user=<name>` via `replaceState`, switches to Screen B, loads entries.
 - **Screen B** (gallery): sticky top bar with `@<user>` + change link, Refresh, card-name filter, color filter, card-type filter, giver-name filter, "Hide giver found" checkbox, "Show only giver found" checkbox. Grid of tiles + "Show more" (PAGE_SIZE = 50).
-- **Tile**: Scryfall image displayed via plain `<img src=card.image_url loading="lazy">`. The `image_url` stored in the DB is a direct `cards.scryfall.io` URL (no rate limit), so images load instantly with no queue or 429 risk. If `image_url` is empty (legacy card not yet backfilled), it falls back to the `/cards/named` redirect URL. `onerror` swaps to a "no image" placeholder. Below the image, an info box holds each line on its own row: card name, optional `[SET cn]` (set code + collector number when present), `seeker: <name>`, `giver: <name>` (only rendered when a giver exists), then conditional action buttons. When a giver exists the info box gets a thick bright-green border (`#22c55e`) and the giver line text turns bright-green bold so already-given cards are easy to spot.
+- **Tile**: Scryfall image displayed via plain `<img src=card.image_url loading="lazy">`. The `image_url` stored in the DB is a direct `cards.scryfall.io` URL (no rate limit), so images load instantly with no queue or 429 risk. If `image_url` is empty (legacy card not yet backfilled), it falls back to the `/cards/named` redirect URL. `onerror` swaps to a "no image" placeholder. Below the image, an info box holds each line on its own row: `seeker: <name>`, `giver: <name>` (only rendered when a giver exists), then conditional action buttons (only rendered when non-empty). The `.card-tile` is a flex column and `.info` is `flex:1`, so within a grid row all info boxes stretch to the tallest tile's height. `.info` is itself a flex row: an `.info-text` column (seeker/giver/actions, `justify-content:center`) on the left and the trash button on the right, with `align-items:center` on `.info` so the button is vertically centered against the whole text block even when a giver row is present. When a giver exists the info box gets a thick bright-green border (`#22c55e`) and the giver line text turns bright-green bold so already-given cards are easy to spot.
   - Clicking the image toggles the current user as giver (claim if empty, unclaim if it's yours; no-op if someone else claimed).
-  - **Cancel** (seeker only) and **Fulfilled** (giver exists and requester is seeker or giver) both hit `POST .../remove`. **Give/Ungive** mirrors the image click.
+  - **Cancel** (seeker only) is a square icon button (garbage can SVG) rendered as a sibling of `.info-text` inside `.info`, so it stays vertically centered regardless of how many text rows the tile has. It hits `POST .../remove` (the only "remove this entry" action — there's no separate "fulfilled" state). **Give/Ungive** mirrors the image click and stays in the actions row.
 - **Filters** compose (AND), client-side; `displayedCount` resets to `PAGE_SIZE` on any filter change or refresh. Color and type filters are single-select dropdowns whose groups mirror the server sort keys: color groups are White (W), Blue (U), Black (B), Red (R), Green (G), Colorless (`""`), Multicolor (2+ letters); type groups are Planeswalker, Creature, Artifact, Enchantment, Instant, Sorcery, Land, Battle, Other (computed client-side via the same supertype-skipping logic as `TypeSortKey`). An empty value means "all".
-- **Add-cards form**: textarea + "Add cards" button. Parsing: split on newlines; each line is `[qty] Name [(SET) [collector_number]]` — quantity, set code, and collector number are all optional; collector number requires a set code. Quantity prefix: `2 Name` / `2x Name`. Examples: `Faerie Guidemother`, `1 Faerie Guidemother (ELD)`, `Faerie Guidemother (ELD) 11`. Duplicates and quantity-prefix both expand to separate units. Metadata is resolved per unique `(name,set,collector_number)` from Scryfall via the batched `POST /cards/collection` endpoint (up to 75 identifiers per request, 500ms between batches); when a collector number is present the identifier uses `{set, collector_number}` (exact printing), otherwise `{name}` or `{name, set}`. A 270-card list is ~4 requests instead of 270. Unresolved lines are reported as errors and kept in the textarea; successful lines are cleared. Results show "Added N cards." plus failed lines.
+- **Add-cards form**: textarea + "Add cards" button. Parsing: split on newlines; each line is `[qty] Name [(SET) [collector_number]]` — quantity, set code, and collector number are all optional; collector number requires a set code. Quantity prefix: `2 Name` / `2x Name`. Examples: `Faerie Guidemother`, `1 Faerie Guidemother (ELD)`, `Faerie Guidemother (ELD) 11`. Duplicates and quantity-prefix both expand to separate units. Metadata is resolved per unique `(name,set,collector_number)` from Scryfall via the batched `POST /cards/collection` endpoint (up to 75 identifiers per request, 500ms between batches); when a collector number is present the identifier uses `{set, collector_number}` (exact printing), otherwise `{name}` or `{name, set}`. A 270-card list is ~4 requests instead of 270. Unresolved lines are reported as errors and kept in the textarea; successful lines are cleared. Results show "Added N cards." plus failed lines. Each resolved card's `colors`, `type_line`, `cmc` (stored as `mana_value`), and `image_uris.normal` are captured from Scryfall and sent to the server.
 - **Show more** appends the next slice of tiles to the grid (`insertAdjacentHTML`) rather than re-rendering the whole grid, so already-loaded images aren't destroyed/re-requested. Full re-render (filter change / refresh) still replaces the grid.
 - **Pinch-to-zoom** (mobile): a two-finger pinch on the grid resizes cards instead of page-zooming — pinch out → larger cards (zoom in), pinch in → smaller cards (zoom out, more cards per row). The card min width (`--card-min`) is clamped to `[80, 400]` px and persisted in `localStorage` (`cardMin`). `touch-action: pan-y` on `.card-grid` lets the browser keep vertical scrolling while the app handles the pinch gesture; single-tap tile clicks are unaffected.
-- **Image URL backfill**: on `loadEntries`, if any cards have empty `image_url` (e.g. added before this feature), the frontend batch-fetches their metadata via `/cards/collection` (paced by the rate-limited queue, ~4 requests for 268 cards), extracts `image_uris.normal`, and persists them via `POST /api/cards/image-url`. This runs once per page load until all cards have direct URLs.
+- **Metadata backfill**: on `loadEntries`, if any cards have empty `image_url` or null `mana_value` (e.g. added before the metadata feature, or legacy rows from the first iteration whose `mana_value` was silently `0`), the frontend batch-fetches their metadata via `/cards/collection` (paced by the rate-limited queue, ~4 requests for 268 cards), extracts `image_uris.normal` and `cmc`, and persists both via `POST /api/cards/metadata`. This runs once per page load until all cards have both fields.
 - **Concurrency UX**: 409 → toast "Sorry — <user> is already giving this card." + refresh; 404 → toast "This entry is no longer available." + refresh; 403 → toast "You can only remove your own entries."; network errors → "Network error — try Refresh."
 - `popstate` re-syncs the screen from the URL so back/forward between `?user=` and `/` switches screens.
 
@@ -139,7 +140,7 @@ Single file, inline CSS + JS, dark theme (`#1a1a2e` / `#eee` / accent `#e94560`)
 
 - Image/metadata URL uses `?exact=<name>&set=<set>` when a set is specified (Scryfall requires `exact=` with `set=`), otherwise `?fuzzy=<name>`. `format=image&version=normal` for images, `format=json` for metadata.
 - `/cards/collection` rejects split/transform names with ` // ` (e.g. "Status // Statue") and only resolves the **front face** ("Status"); `/cards/named` accepts the full name. Identifiers sent to `/cards/collection` therefore use `frontFaceName(name)` (split on `//`, take the trimmed left part) when searching by name, while the full name is kept for the result-map key, the stored card name, and the `/cards/named` image fallback. When a collector number is present, the identifier uses `{set, collector_number}` (no name) per Scryfall's exact-printing schema.
-- Metadata is fetched in batches with `POST /cards/collection` (up to 75 `name`/`name,set`/`set+collector_number` identifiers per request, paced 500ms apart by the rate-limited queue). The response is a List with `data` (found cards, in request order) and `not_found` (identifiers echoed as submitted); results are mapped back to requests by a positional walk that consumes `not_found` entries by a normalized key (triples are globally unique, so this is unambiguous). Each card's `image_uris.normal` (direct `cards.scryfall.io` URL, no rate limit) is captured alongside `colors`/`type_line` and stored in the DB. DFC cards fall back to `card_faces[0].image_uris.normal`. A 429 response is retried after `Retry-After` (bounded to 2 retries). Unresolved lines → "card not found" (or "card or set not found"); a set mismatch on a resolved card → "set not found"; network error → retry once then report.
+- Metadata is fetched in batches with `POST /cards/collection` (up to 75 `name`/`name,set`/`set+collector_number` identifiers per request, paced 500ms apart by the rate-limited queue). The response is a List with `data` (found cards, in request order) and `not_found` (identifiers echoed as submitted); results are mapped back to requests by a positional walk that consumes `not_found` entries by a normalized key (triples are globally unique, so this is unambiguous). Each card's `image_uris.normal` (direct `cards.scryfall.io` URL, no rate limit), `colors`, `type_line`, and `cmc` (stored as `mana_value`) are captured and stored in the DB. DFC cards fall back to `card_faces[0].image_uris.normal` (top-level `cmc` is still used). A 429 response is retried after `Retry-After` (bounded to 2 retries). Unresolved lines → "card not found" (or "card or set not found"); a set mismatch on a resolved card → "set not found"; network error → retry once then report.
 - Image display uses the stored `cards.scryfall.io` URL directly (`<img src>`), which has no rate limit. The `/cards/named` redirect endpoint (rate-limited) is only used as a fallback for cards without a stored URL.
 
 ## Deployment (Fly.io)
@@ -151,10 +152,10 @@ Single file, inline CSS + JS, dark theme (`#1a1a2e` / `#eee` / accent `#e94560`)
 ## Testing
 
 ```sh
-CGO_ENABLED=1 go test ./server/tests/   # 35 tests
+CGO_ENABLED=1 go test ./server/tests/   # 38 tests
 ```
 
-Integration tests use a temp-file SQLite DB + `httptest` recorder (mirroring the reference). Coverage includes: sort-key unit tests, batch add (entry/card counts, stored sort keys), duplicate lines, collector-number distinguishing printings, collector-number collapse without printing spec, collector-number in list response, image-URL backfill by collector number, list ordering across colors/types with name tie-break, self-offer, idempotent re-claim, 409-with-entry conflict, 404 after removal, clear-giver ownership, seeker/giver/non-party removal (204/403/404), and the full-list pagination contract (200 entries returned in order).
+Integration tests use a temp-file SQLite DB + `httptest` recorder (mirroring the reference). Coverage includes: sort-key unit tests, batch add (entry/card counts, stored sort keys), duplicate lines, collector-number distinguishing printings, collector-number collapse without printing spec, collector-number in list response, image-URL backfill by collector number, list ordering across colors/types with mana-value then name tie-break, metadata backfill updating `mana_value` and re-sorting, `mana_value` migration converting a legacy NOT NULL DEFAULT 0 column to nullable with `0 → NULL`, self-offer, idempotent re-claim, 409-with-entry conflict, 404 after removal, clear-giver ownership, seeker/giver/non-party removal (204/403/404), and the full-list pagination contract (200 entries returned in order).
 
 ## Workspace Conventions
 
