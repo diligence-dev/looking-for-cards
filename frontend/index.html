@@ -155,6 +155,72 @@
                 font-size: 13px;
             }
 
+            /* Multiselect (giver / seeker name filters) */
+            .multiselect {
+                position: relative;
+                display: inline-block;
+            }
+
+            .topbar .ms-trigger {
+                padding: 8px 14px;
+                font-size: 14px;
+                border: 2px solid #333;
+                border-radius: 8px;
+                background: #16213e;
+                color: #eee;
+                cursor: pointer;
+                white-space: nowrap;
+            }
+
+            .topbar .ms-trigger:hover,
+            .topbar .ms-trigger.open {
+                border-color: #e94560;
+            }
+
+            .ms-panel {
+                position: absolute;
+                top: calc(100% + 4px);
+                left: 0;
+                background: #16213e;
+                border: 2px solid #333;
+                border-radius: 8px;
+                padding: 6px;
+                max-height: 240px;
+                overflow-y: auto;
+                min-width: 100%;
+                box-shadow: 0 6px 18px rgba(0, 0, 0, 0.4);
+                z-index: 20;
+                display: flex;
+                flex-direction: column;
+                gap: 2px;
+            }
+
+            .ms-panel.empty {
+                padding: 10px 12px;
+                color: #888;
+                font-size: 13px;
+            }
+
+            .topbar .ms-panel label {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                cursor: pointer;
+                font-size: 13px;
+                padding: 4px 6px;
+                border-radius: 4px;
+                white-space: nowrap;
+            }
+
+            .topbar .ms-panel label:hover {
+                background: #1a2540;
+            }
+
+            .ms-panel input[type="checkbox"] {
+                accent-color: #e94560;
+                cursor: pointer;
+            }
+
             /* Grid */
             .card-grid {
                 --card-min: 200px;
@@ -389,6 +455,15 @@
                 .topbar input[type="search"] {
                     min-width: 0;
                 }
+
+                .multiselect {
+                    width: 100%;
+                }
+
+                .ms-trigger {
+                    width: 100%;
+                    text-align: left;
+                }
             }
         </style>
     </head>
@@ -430,9 +505,15 @@
                     <option value="7">Battle</option>
                     <option value="8">Other</option>
                 </select>
-                <input id="giver-filter" type="search" placeholder="giver name" />
+                <div class="multiselect" id="seeker-filter">
+                    <button class="ms-trigger" type="button">all seekers</button>
+                    <div class="ms-panel hidden"></div>
+                </div>
+                <div class="multiselect" id="giver-filter">
+                    <button class="ms-trigger" type="button">all givers</button>
+                    <div class="ms-panel hidden"></div>
+                </div>
                 <label><input id="hide-giver" type="checkbox" /> Hide giver found</label>
-                <label><input id="only-giver" type="checkbox" /> Show only giver found</label>
             </div>
             <div id="grid" class="card-grid"></div>
             <button id="show-more" class="show-more hidden">Show more</button>
@@ -473,8 +554,8 @@
             const colorFilter = $("color-filter");
             const typeFilter = $("type-filter");
             const giverFilter = $("giver-filter");
+            const seekerFilter = $("seeker-filter");
             const hideGiver = $("hide-giver");
-            const onlyGiver = $("only-giver");
             const grid = $("grid");
             const showMoreBtn = $("show-more");
             const cardList = $("card-list");
@@ -732,9 +813,67 @@
             cardFilter.addEventListener("input", applyFiltersAndRender);
             colorFilter.addEventListener("change", applyFiltersAndRender);
             typeFilter.addEventListener("change", applyFiltersAndRender);
-            giverFilter.addEventListener("input", applyFiltersAndRender);
             hideGiver.addEventListener("change", applyFiltersAndRender);
-            onlyGiver.addEventListener("change", applyFiltersAndRender);
+
+            // Multiselect dropdowns for seeker / giver name filters. Each panel
+            // lists one checkbox per name gathered from allEntries; an empty
+            // selection means "all" (no filter applied).
+            const giverSelected = new Set();
+            const seekerSelected = new Set();
+
+            function closeAllPanels() {
+                document.querySelectorAll(".ms-panel:not(.hidden)").forEach((p) => p.classList.add("hidden"));
+                document.querySelectorAll(".ms-trigger.open").forEach((t) => t.classList.remove("open"));
+            }
+
+            function setupMultiselect(root, selected, allLabel, countLabel) {
+                const trigger = root.querySelector(".ms-trigger");
+                const panel = root.querySelector(".ms-panel");
+                trigger.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const willOpen = panel.classList.contains("hidden");
+                    closeAllPanels();
+                    if (willOpen) {
+                        panel.classList.remove("hidden");
+                        trigger.classList.add("open");
+                    }
+                });
+                panel.addEventListener("click", (e) => e.stopPropagation());
+                function updateTrigger() {
+                    trigger.textContent = selected.size ? `${countLabel} (${selected.size})` : allLabel;
+                }
+                function populate(names) {
+                    for (const name of [...selected]) {
+                        if (!names.has(name)) selected.delete(name);
+                    }
+                    const sorted = [...names].sort((a, b) => a.localeCompare(b));
+                    if (!sorted.length) {
+                        panel.classList.add("empty");
+                        panel.innerHTML = "no names yet";
+                        updateTrigger();
+                        return;
+                    }
+                    panel.classList.remove("empty");
+                    panel.innerHTML = sorted
+                        .map((name) => `<label><input type="checkbox" value="${escapeHtml(name)}" ${selected.has(name) ? "checked" : ""} /><span>${escapeHtml(name)}</span></label>`)
+                        .join("");
+                    panel.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
+                        cb.addEventListener("change", () => {
+                            if (cb.checked) selected.add(cb.value);
+                            else selected.delete(cb.value);
+                            updateTrigger();
+                            applyFiltersAndRender();
+                        });
+                    });
+                    updateTrigger();
+                }
+                return { populate };
+            }
+
+            const giverMS = setupMultiselect(giverFilter, giverSelected, "all givers", "givers");
+            const seekerMS = setupMultiselect(seekerFilter, seekerSelected, "all seekers", "seekers");
+
+            document.addEventListener("click", closeAllPanels);
 
             showMoreBtn.onclick = () => {
                 const prev = displayedCount;
@@ -749,11 +888,23 @@
                     if (!res.ok) throw new Error("failed");
                     const data = await res.json();
                     allEntries = data.entries || [];
+                    populateNameFilters();
                     applyFiltersAndRender();
                     backfillMetadata();
                 } catch (e) {
                     toast("Network error — try Refresh.");
                 }
+            }
+
+            function populateNameFilters() {
+                const givers = new Set();
+                const seekers = new Set();
+                for (const e of allEntries) {
+                    if (e.giver) givers.add(e.giver);
+                    seekers.add(e.seeker);
+                }
+                giverMS.populate(givers);
+                seekerMS.populate(seekers);
             }
 
             // Backfill image_url and mana_value for legacy cards that lack
@@ -829,16 +980,14 @@
                 const cardF = cardFilter.value.trim().toLowerCase();
                 const colorF = colorFilter.value;
                 const typeF = typeFilter.value;
-                const giverF = giverFilter.value.trim().toLowerCase();
                 const hide = hideGiver.checked;
-                const only = onlyGiver.checked;
                 currentFiltered = allEntries.filter((e) => {
                     if (cardF && !e.card.name.toLowerCase().includes(cardF)) return false;
                     if (colorF && colorGroup(e.card.colors) !== colorF) return false;
                     if (typeF && String(typeGroup(e.card.type_line)) !== typeF) return false;
-                    if (giverF && (!e.giver || !e.giver.toLowerCase().includes(giverF))) return false;
+                    if (seekerSelected.size && !seekerSelected.has(e.seeker)) return false;
+                    if (giverSelected.size && !giverSelected.has(e.giver)) return false;
                     if (hide && e.giver !== "") return false;
-                    if (only && e.giver === "") return false;
                     return true;
                 });
                 displayedCount = PAGE_SIZE;
