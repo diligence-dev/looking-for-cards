@@ -171,6 +171,8 @@
                 border-radius: 12px;
                 overflow: hidden;
                 position: relative;
+                display: flex;
+                flex-direction: column;
             }
 
             .card-tile.claimed {
@@ -180,6 +182,7 @@
             .img-wrap {
                 position: relative;
                 background: #0f1629;
+                flex: none;
             }
 
             .img-wrap img {
@@ -209,41 +212,66 @@
 
             .card-tile .info {
                 background: #0f1629;
+                flex: 1;
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                padding: 8px 10px 10px;
             }
 
             .card-tile .info.has-giver {
                 border: 6px solid #22c55e;
             }
 
-            .card-tile .name {
-                padding: 8px 10px 2px;
-                font-weight: bold;
+            .card-tile .info-text {
+                flex: 1;
+                display: flex;
+                flex-direction: column;
+                justify-content: center;
+                gap: 2px;
             }
 
-            .card-tile .set {
-                padding: 1px 10px;
-                color: #888;
-                font-size: 12px;
+            .card-tile .tile-icon-btn {
+                flex: none;
+                width: 28px;
+                height: 28px;
+                padding: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: #2a3450;
+                color: #eee;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+            }
+
+            .card-tile .tile-icon-btn:hover {
+                background: #3a4470;
+            }
+
+            .card-tile .tile-icon-btn svg {
+                width: 16px;
+                height: 16px;
+                display: block;
             }
 
             .card-tile .seeker {
-                padding: 1px 10px;
                 font-size: 12px;
                 color: #aaa;
             }
 
             .card-tile .giver {
-                padding: 1px 10px 6px;
                 font-size: 12px;
                 color: #22c55e;
                 font-weight: bold;
             }
 
             .card-tile .actions {
-                padding: 8px 10px 12px;
                 display: flex;
                 flex-wrap: wrap;
                 gap: 6px;
+                padding-top: 6px;
             }
 
             .card-tile .actions button {
@@ -430,6 +458,8 @@
 
             const PLACEHOLDER =
                 "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='280'><rect width='100%25' height='100%25' fill='%230f1629'/><text x='50%25' y='50%25' fill='%23888' font-family='sans-serif' font-size='14' text-anchor='middle' dominant-baseline='middle'>no image</text></svg>";
+
+            const TRASH_ICON = `<svg viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='3 6 5 6 21 6'/><path d='M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6'/><path d='M10 11v6'/><path d='M14 11v6'/><path d='M9 6V4a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2'/></svg>`;
 
             const $ = (id) => document.getElementById(id);
             const screenA = $("screen-a");
@@ -654,6 +684,7 @@
                         out.set(pairKey(p), {
                             colors: (card.colors || []).join(""),
                             type_line: card.type_line || "",
+                            mana_value: typeof card.cmc === "number" ? card.cmc : 0,
                             image_url: img.normal || "",
                         });
                     }
@@ -719,16 +750,19 @@
                     const data = await res.json();
                     allEntries = data.entries || [];
                     applyFiltersAndRender();
-                    backfillImageURLs();
+                    backfillMetadata();
                 } catch (e) {
                     toast("Network error — try Refresh.");
                 }
             }
 
-            async function backfillImageURLs() {
+            // Backfill image_url and mana_value for legacy cards that lack
+            // either (image_url empty or mana_value null). Both come from the
+            // same Scryfall /cards/collection call, so we fetch once per card.
+            async function backfillMetadata() {
                 const missing = new Map();
                 for (const e of allEntries) {
-                    if (!e.card.image_url) {
+                    if (!e.card.image_url || e.card.mana_value == null) {
                         const k = pairKey(e.card);
                         if (!missing.has(k)) missing.set(k, { name: e.card.name, set: e.card.set, collector_number: e.card.collector_number });
                     }
@@ -745,11 +779,13 @@
                 const updates = [];
                 for (const [k, p] of missing) {
                     const m = meta.get(k);
-                    if (m && !m.error && m.image_url) updates.push({ name: p.name, set: p.set, collector_number: p.collector_number, image_url: m.image_url });
+                    if (m && !m.error && (m.image_url || m.mana_value != null)) {
+                        updates.push({ name: p.name, set: p.set, collector_number: p.collector_number, image_url: m.image_url || "", mana_value: m.mana_value });
+                    }
                 }
                 if (!updates.length) return;
                 try {
-                    await fetch("/api/cards/image-url", {
+                    await fetch("/api/cards/metadata", {
                         method: "POST",
                         headers: { "Content-Type": "application/json" },
                         body: JSON.stringify({ cards: updates }),
@@ -757,7 +793,10 @@
                     for (const u of updates) {
                         const k = pairKey(u);
                         for (const e of allEntries) {
-                            if (pairKey(e.card) === k) e.card.image_url = u.image_url;
+                            if (pairKey(e.card) === k) {
+                                if (u.image_url) e.card.image_url = u.image_url;
+                                if (u.mana_value != null) e.card.mana_value = u.mana_value;
+                            }
                         }
                     }
                     applyFiltersAndRender();
@@ -821,19 +860,16 @@
             function tileHTML(e) {
                 const clickable = e.giver === "" || e.giver === currentUser;
                 const claimed = e.giver && e.giver !== currentUser;
-                const setLabel = e.card.set ? `[${escapeHtml(e.card.set)}${e.card.collector_number ? " " + escapeHtml(e.card.collector_number) : ""}]` : "";
                 const imgAction = clickable ? "data-action='toggle-giver'" : "";
 
                 let actions = "";
-                if (e.seeker === currentUser) {
-                    actions += `<button data-action='cancel'>Cancel</button>`;
-                }
-                if (e.giver && (e.seeker === currentUser || e.giver === currentUser)) {
-                    actions += `<button data-action='fulfilled'>Fulfilled</button>`;
-                }
                 if (e.seeker !== currentUser && (e.giver === "" || e.giver === currentUser)) {
                     actions += `<button data-action='toggle-giver'>${e.giver === currentUser ? "Ungive" : "Give"}</button>`;
                 }
+
+                const cancelBtn = e.seeker === currentUser
+                    ? `<button class='tile-icon-btn' data-action='cancel' title='Cancel' aria-label='Cancel'>${TRASH_ICON}</button>`
+                    : "";
 
                 return `
                 <div class='card-tile${clickable ? " clickable" : ""}${claimed ? " claimed" : ""}' data-id='${e.id}'>
@@ -842,11 +878,12 @@
                         ${claimed ? "<div class='claimed-badge'>claimed</div>" : ""}
                     </div>
                     <div class='info${e.giver ? " has-giver" : ""}'>
-                        <div class='name'>${escapeHtml(e.card.name)}</div>
-                        ${setLabel ? `<div class='set'>${setLabel}</div>` : ""}
-                        <div class='seeker'>seeker: ${escapeHtml(e.seeker)}</div>
-                        ${e.giver ? `<div class='giver'>giver: ${escapeHtml(e.giver)}</div>` : ""}
-                        <div class='actions'>${actions}</div>
+                        <div class='info-text'>
+                            <div class='seeker'>seeker: ${escapeHtml(e.seeker)}</div>
+                            ${e.giver ? `<div class='giver'>giver: ${escapeHtml(e.giver)}</div>` : ""}
+                            ${actions ? `<div class='actions'>${actions}</div>` : ""}
+                        </div>
+                        ${cancelBtn}
                     </div>
                 </div>`;
             }
@@ -863,7 +900,7 @@
                 if (action === "toggle-giver") {
                     if (entry.giver === "") postGiver(entry);
                     else if (entry.giver === currentUser) deleteGiver(entry);
-                } else if (action === "cancel" || action === "fulfilled") {
+                } else if (action === "cancel") {
                     removeEntry(entry);
                 }
             });
@@ -995,7 +1032,7 @@
                         failedLines.add(u.sourceLine);
                         lineErrors.push({ line: u.sourceLine, name: u.name, error: m.error });
                     } else if (m) {
-                        cards.push({ name: u.name, set: u.set, collector_number: u.collector_number, colors: m.colors, type_line: m.type_line, image_url: m.image_url });
+                        cards.push({ name: u.name, set: u.set, collector_number: u.collector_number, colors: m.colors, type_line: m.type_line, mana_value: m.mana_value, image_url: m.image_url });
                         cardSources.push(u.sourceLine);
                     }
                 }
