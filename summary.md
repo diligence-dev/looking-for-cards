@@ -28,6 +28,7 @@ looking-for-cards/
 ├── fly.toml             // Fly.io, volume at /data
 ├── .air.toml            // live-reload dev
 ├── .gitignore
+├── .github/workflows/fly-deploy.yml  // CI: deploy to Fly on push to main
 ├── frontend/
 │   └── index.html       // single SPA (inline CSS + JS, no framework)
 ├── server/
@@ -143,8 +144,9 @@ Single file, inline CSS + JS, dark theme (`#1a1a2e` / `#eee` / accent `#e94560`)
 
 ## Deployment (Fly.io)
 
-- `Dockerfile`: multi-stage `golang:1.24-alpine` (gcc/musl for CGO) → minimal `alpine:3.21` runtime.
+- `Dockerfile`: multi-stage `golang:1.26-alpine` (gcc/musl for CGO) → minimal `alpine:3.21` runtime.
 - `fly.toml`: app `looking-for-cards`, region `ams`, persistent volume `lfk_data` at `/data`, `DATA_DIR=/data`, auto-stop/start machines.
+- `.github/workflows/fly-deploy.yml`: on every push to `main`, runs `flyctl deploy --remote-only` via `superfly/flyctl-actions`. Requires the `FLY_API_TOKEN` repo secret (a Fly API token with deploy scope on the `looking-for-cards` app).
 
 ## Testing
 
