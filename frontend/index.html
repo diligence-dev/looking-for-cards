@@ -114,7 +114,8 @@
 
             .topbar button,
             .topbar input,
-            .topbar label {
+            .topbar label,
+            .topbar select {
                 padding: 8px 14px;
                 font-size: 14px;
                 border: 2px solid #333;
@@ -131,6 +132,10 @@
 
             .topbar button:hover {
                 background: #ff6b6b;
+            }
+
+            .topbar select {
+                cursor: pointer;
             }
 
             .topbar input[type="search"] {
@@ -199,26 +204,36 @@
                 border-radius: 4px;
             }
 
+            .card-tile .info {
+                background: #0f1629;
+            }
+
+            .card-tile .info.has-giver {
+                border: 6px solid #22c55e;
+            }
+
             .card-tile .name {
                 padding: 8px 10px 2px;
                 font-weight: bold;
             }
 
             .card-tile .set {
+                padding: 1px 10px;
                 color: #888;
-                font-weight: normal;
                 font-size: 12px;
             }
 
-            .card-tile .seeker,
-            .card-tile .giver {
+            .card-tile .seeker {
                 padding: 1px 10px;
                 font-size: 12px;
                 color: #aaa;
             }
 
             .card-tile .giver {
-                padding-bottom: 6px;
+                padding: 1px 10px 6px;
+                font-size: 12px;
+                color: #22c55e;
+                font-weight: bold;
             }
 
             .card-tile .actions {
@@ -362,6 +377,28 @@
                 <a id="change-link" href="#">change</a>
                 <button id="refresh-btn">Refresh</button>
                 <input id="card-filter" type="search" placeholder="card name" />
+                <select id="color-filter">
+                    <option value="">all colors</option>
+                    <option value="W">White</option>
+                    <option value="U">Blue</option>
+                    <option value="B">Black</option>
+                    <option value="R">Red</option>
+                    <option value="G">Green</option>
+                    <option value="colorless">Colorless</option>
+                    <option value="multicolor">Multicolor</option>
+                </select>
+                <select id="type-filter">
+                    <option value="">all types</option>
+                    <option value="0">Planeswalker</option>
+                    <option value="1">Creature</option>
+                    <option value="2">Artifact</option>
+                    <option value="3">Enchantment</option>
+                    <option value="4">Instant</option>
+                    <option value="5">Sorcery</option>
+                    <option value="6">Land</option>
+                    <option value="7">Battle</option>
+                    <option value="8">Other</option>
+                </select>
                 <input id="giver-filter" type="search" placeholder="giver name" />
                 <label><input id="hide-giver" type="checkbox" /> Hide giver found</label>
             </div>
@@ -399,6 +436,8 @@
             const changeLink = $("change-link");
             const refreshBtn = $("refresh-btn");
             const cardFilter = $("card-filter");
+            const colorFilter = $("color-filter");
+            const typeFilter = $("type-filter");
             const giverFilter = $("giver-filter");
             const hideGiver = $("hide-giver");
             const grid = $("grid");
@@ -604,6 +643,8 @@
 
             refreshBtn.onclick = loadEntries;
             cardFilter.addEventListener("input", applyFiltersAndRender);
+            colorFilter.addEventListener("change", applyFiltersAndRender);
+            typeFilter.addEventListener("change", applyFiltersAndRender);
             giverFilter.addEventListener("input", applyFiltersAndRender);
             hideGiver.addEventListener("change", applyFiltersAndRender);
 
@@ -666,12 +707,38 @@
                 } catch (e) {}
             }
 
+            function colorGroup(colors) {
+                if (!colors) return "colorless";
+                if (colors.length === 1) return colors;
+                return "multicolor";
+            }
+
+            const TYPE_ORDER = { planeswalker: 0, creature: 1, artifact: 2, enchantment: 3, instant: 4, sorcery: 5, land: 6, battle: 7 };
+            const SUPERTYPES = new Set(["legendary", "basic", "snow", "world", "elite", "ongoing"]);
+
+            function typeGroup(typeLine) {
+                if (!typeLine) return 8;
+                let left = typeLine;
+                const i = typeLine.indexOf(" — ");
+                if (i >= 0) left = typeLine.slice(0, i);
+                for (const token of left.split(" ")) {
+                    const key = token.toLowerCase();
+                    if (SUPERTYPES.has(key)) continue;
+                    if (key in TYPE_ORDER) return TYPE_ORDER[key];
+                }
+                return 8;
+            }
+
             function applyFiltersAndRender() {
                 const cardF = cardFilter.value.trim().toLowerCase();
+                const colorF = colorFilter.value;
+                const typeF = typeFilter.value;
                 const giverF = giverFilter.value.trim().toLowerCase();
                 const hide = hideGiver.checked;
                 currentFiltered = allEntries.filter((e) => {
                     if (cardF && !e.card.name.toLowerCase().includes(cardF)) return false;
+                    if (colorF && colorGroup(e.card.colors) !== colorF) return false;
+                    if (typeF && String(typeGroup(e.card.type_line)) !== typeF) return false;
                     if (giverF && (!e.giver || !e.giver.toLowerCase().includes(giverF))) return false;
                     if (hide && e.giver !== "") return false;
                     return true;
@@ -695,8 +762,7 @@
             function tileHTML(e) {
                 const clickable = e.giver === "" || e.giver === currentUser;
                 const claimed = e.giver && e.giver !== currentUser;
-                const setLabel = e.card.set ? ` <span class="set">[${escapeHtml(e.card.set)}${e.card.collector_number ? " " + escapeHtml(e.card.collector_number) : ""}]</span>` : "";
-                const giverLabel = e.giver ? escapeHtml(e.giver) : "—";
+                const setLabel = e.card.set ? `[${escapeHtml(e.card.set)}${e.card.collector_number ? " " + escapeHtml(e.card.collector_number) : ""}]` : "";
                 const imgAction = clickable ? "data-action='toggle-giver'" : "";
 
                 let actions = "";
@@ -716,10 +782,13 @@
                         <img src="${escapeHtml(e.card.image_url || imageURL(e.card.name, e.card.set))}" loading="lazy" alt="${escapeHtml(e.card.name)}" ${imgAction} onerror="imgFallback(this)" />
                         ${claimed ? "<div class='claimed-badge'>claimed</div>" : ""}
                     </div>
-                    <div class='name'>${escapeHtml(e.card.name)}${setLabel}</div>
-                    <div class='seeker'>looking for: ${escapeHtml(e.seeker)}</div>
-                    <div class='giver'>giver: ${giverLabel}</div>
-                    <div class='actions'>${actions}</div>
+                    <div class='info${e.giver ? " has-giver" : ""}'>
+                        <div class='name'>${escapeHtml(e.card.name)}</div>
+                        ${setLabel ? `<div class='set'>${setLabel}</div>` : ""}
+                        <div class='seeker'>seeker: ${escapeHtml(e.seeker)}</div>
+                        ${e.giver ? `<div class='giver'>giver: ${escapeHtml(e.giver)}</div>` : ""}
+                        <div class='actions'>${actions}</div>
+                    </div>
                 </div>`;
             }
 
@@ -845,7 +914,7 @@
                 const seen = new Map();
                 for (const u of units) {
                     const key = pairKey(u);
-                    if (!seen.has(key)) seen.set(key, { name: u.name, set: u.set });
+                    if (!seen.has(key)) seen.set(key, { name: u.name, set: u.set, collector_number: u.collector_number });
                 }
                 const pairs = [...seen.values()];
 
