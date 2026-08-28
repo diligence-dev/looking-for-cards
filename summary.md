@@ -122,7 +122,7 @@ All mutating endpoints take the actor's name from `?user=<name>` (no auth; empty
 Single file, inline CSS + JS, dark theme (`#1a1a2e` / `#eee` / accent `#e94560`), system font stack, CSS grid `repeat(auto-fill, minmax(200px, 1fr))`, 768px responsive breakpoint.
 
 - **Screen A** (name prompt): shown when URL has no `?user=`. On submit, sets `?user=<name>` via `replaceState`, switches to Screen B, loads entries.
-- **Screen B** (gallery): sticky top bar with `@<user>` + change link, Refresh, card-name filter, color filter, card-type filter, giver-name filter, "Hide giver found" checkbox. Grid of tiles + "Show more" (PAGE_SIZE = 50).
+- **Screen B** (gallery): sticky top bar with `@<user>` + change link, Refresh, card-name filter, color filter, card-type filter, giver-name filter, "Hide giver found" checkbox, "Show only giver found" checkbox. Grid of tiles + "Show more" (PAGE_SIZE = 50).
 - **Tile**: Scryfall image displayed via plain `<img src=card.image_url loading="lazy">`. The `image_url` stored in the DB is a direct `cards.scryfall.io` URL (no rate limit), so images load instantly with no queue or 429 risk. If `image_url` is empty (legacy card not yet backfilled), it falls back to the `/cards/named` redirect URL. `onerror` swaps to a "no image" placeholder. Below the image, an info box holds each line on its own row: card name, optional `[SET cn]` (set code + collector number when present), `seeker: <name>`, `giver: <name>` (only rendered when a giver exists), then conditional action buttons. When a giver exists the info box gets a thick bright-green border (`#22c55e`) and the giver line text turns bright-green bold so already-given cards are easy to spot.
   - Clicking the image toggles the current user as giver (claim if empty, unclaim if it's yours; no-op if someone else claimed).
   - **Cancel** (seeker only) and **Fulfilled** (giver exists and requester is seeker or giver) both hit `POST .../remove`. **Give/Ungive** mirrors the image click.
@@ -152,6 +152,10 @@ CGO_ENABLED=1 go test ./server/tests/   # 35 tests
 ```
 
 Integration tests use a temp-file SQLite DB + `httptest` recorder (mirroring the reference). Coverage includes: sort-key unit tests, batch add (entry/card counts, stored sort keys), duplicate lines, collector-number distinguishing printings, collector-number collapse without printing spec, collector-number in list response, image-URL backfill by collector number, list ordering across colors/types with name tie-break, self-offer, idempotent re-claim, 409-with-entry conflict, 404 after removal, clear-giver ownership, seeker/giver/non-party removal (204/403/404), and the full-list pagination contract (200 entries returned in order).
+
+## Workspace Conventions
+
+- Never write scratch/temp files under `/tmp`. If a temporary file is needed, create a local folder inside the workspace (e.g. `tmp/`, gitignored) so artifacts stay with the repo.
 
 ## Known Limitations / Future Work
 

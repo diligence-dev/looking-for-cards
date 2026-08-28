@@ -401,6 +401,7 @@
                 </select>
                 <input id="giver-filter" type="search" placeholder="giver name" />
                 <label><input id="hide-giver" type="checkbox" /> Hide giver found</label>
+                <label><input id="only-giver" type="checkbox" /> Show only giver found</label>
             </div>
             <div id="grid" class="card-grid"></div>
             <button id="show-more" class="show-more hidden">Show more</button>
@@ -440,6 +441,7 @@
             const typeFilter = $("type-filter");
             const giverFilter = $("giver-filter");
             const hideGiver = $("hide-giver");
+            const onlyGiver = $("only-giver");
             const grid = $("grid");
             const showMoreBtn = $("show-more");
             const cardList = $("card-list");
@@ -647,6 +649,7 @@
             typeFilter.addEventListener("change", applyFiltersAndRender);
             giverFilter.addEventListener("input", applyFiltersAndRender);
             hideGiver.addEventListener("change", applyFiltersAndRender);
+            onlyGiver.addEventListener("change", applyFiltersAndRender);
 
             showMoreBtn.onclick = () => {
                 const prev = displayedCount;
@@ -735,12 +738,14 @@
                 const typeF = typeFilter.value;
                 const giverF = giverFilter.value.trim().toLowerCase();
                 const hide = hideGiver.checked;
+                const only = onlyGiver.checked;
                 currentFiltered = allEntries.filter((e) => {
                     if (cardF && !e.card.name.toLowerCase().includes(cardF)) return false;
                     if (colorF && colorGroup(e.card.colors) !== colorF) return false;
                     if (typeF && String(typeGroup(e.card.type_line)) !== typeF) return false;
                     if (giverF && (!e.giver || !e.giver.toLowerCase().includes(giverF))) return false;
                     if (hide && e.giver !== "") return false;
+                    if (only && e.giver === "") return false;
                     return true;
                 });
                 displayedCount = PAGE_SIZE;
