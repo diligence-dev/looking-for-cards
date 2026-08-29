@@ -345,6 +345,12 @@
                 padding-right: 40px;
             }
 
+            .add-section .hint {
+                margin-bottom: 10px;
+                color: #888;
+                font-size: 13px;
+            }
+
             .add-section textarea {
                 width: 100%;
                 min-height: 120px;
@@ -531,6 +537,7 @@
                     <button class="modal-close" id="seek-close" aria-label="Close">&times;</button>
                     <div class="add-section">
                         <h2>I'm looking for the following cards...</h2>
+                        <p class="hint">If using CubeCobra: filter 'status:"not owned"', Export, Card Versions (.txt), copy-paste content here</p>
                         <textarea id="card-list" placeholder="One card per line, e.g.&#10;Lightning Bolt&#10;2 Counterspell&#10;Faerie Guidemother (ELD) 11"></textarea>
                         <button id="add-btn">Add cards</button>
                         <div id="add-progress"></div>
