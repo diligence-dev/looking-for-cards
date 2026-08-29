@@ -72,6 +72,7 @@ func InitDB(path string) (*sql.DB, error) {
 	migrateAddCollectorNumber(db)
 	migrateAddManaValue(db)
 	migrateManaValueNullable(db)
+	migrateFixManaValues(db)
 
 	return db, nil
 }
