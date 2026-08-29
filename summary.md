@@ -94,7 +94,7 @@ Indexes on `seeker_name`, `giver_name`, `card_id`.
 
 `ColorSortKey(colors)`: `""`→5 (colorless); length≥2→6 (multicolor); single letter `W=0, U=1, B=2, R=3, G=4`; any other→5.
 
-`TypeSortKey(typeLine)`: empty→8. Split on `" — "`, take the left (type) part; split on spaces; skip supertypes (`legendary, basic, snow, world, elite, ongoing`); return the first remaining token's index in `planeswalker=0, creature=1, artifact=2, enchantment=3, instant=4, sorcery=5, land=6, battle=7`; none→8. First match wins (e.g. "Artifact Creature"→2).
+`TypeSortKey(typeLine)`: empty→8. Split on `" — "`, take the left (type) part; split on spaces; skip supertypes (`legendary, basic, snow, world, elite, ongoing`); **creature wins** — if `creature` appears among the remaining tokens, return the creature index (1) regardless of order, so `Artifact Creature` and `Enchantment Creature` sort as creatures; otherwise return the first remaining token's index in `planeswalker=0, creature=1, artifact=2, enchantment=3, instant=4, sorcery=5, land=6, battle=7`; none→8 (e.g. "Artifact Land"→2, "Enchantment Land"→3).
 
 Keys are computed server-side at upsert time and stored — never trusted from the client.
 
@@ -117,7 +117,7 @@ All mutating endpoints take the actor's name from `?user=<name>` (no auth; empty
 
 ## Ordering
 
-`ListEntries` sorts by `cards.color_sort_key, cards.type_sort_key, cards.mana_value, cards.name, entries.created_at, entries.id`. SQL `NULL` mana values sort first (treated as 0), so legacy cards without a resolved `cmc` appear before higher-cost same-color-and-type cards until backfilled. Color order: W, U, B, R, G, colorless, multicolor. Type order: Planeswalker, Creature, Artifact, Enchantment, Instant, Sorcery, Land, Battle. Within the same color and type, cards rise by mana value (ascending), then name (A–Z). The server returns **all** entries (no pagination) because client-side filters need the full set.
+`ListEntries` sorts by `cards.color_sort_key, cards.type_sort_key, cards.mana_value, cards.name, entries.created_at, entries.id`. SQL `NULL` mana values sort first (treated as 0), so legacy cards without a resolved `cmc` appear before higher-cost same-color-and-type cards until backfilled. Color order: W, U, B, R, G, colorless, multicolor. Type order: Planeswalker, Creature, Artifact, Enchantment, Instant, Sorcery, Land, Battle. Artifact Creatures and Enchantment Creatures sort as Creatures (creature wins). Within the same color and type, cards rise by mana value (ascending), then name (A–Z). The server returns **all** entries (no pagination) because client-side filters need the full set.
 
 ## Frontend (`frontend/index.html`)
 
@@ -151,10 +151,10 @@ Single file, inline CSS + JS, dark theme (`#1a1a2e` / `#eee` / accent `#e94560`)
 ## Testing
 
 ```sh
-CGO_ENABLED=1 go test ./server/tests/   # 38 tests
+CGO_ENABLED=1 go test ./server/tests/   # 40 tests
 ```
 
-Integration tests use a temp-file SQLite DB + `httptest` recorder (mirroring the reference). Coverage includes: sort-key unit tests, batch add (entry/card counts, stored sort keys), duplicate lines, collector-number distinguishing printings, collector-number collapse without printing spec, collector-number in list response, image-URL backfill by collector number, list ordering across colors/types with mana-value then name tie-break, metadata backfill updating `mana_value` and re-sorting, `mana_value` migration converting a legacy NOT NULL DEFAULT 0 column to nullable with `0 → NULL`, self-offer, idempotent re-claim, 409-with-entry conflict, 404 after removal, clear-giver ownership, seeker/giver/non-party removal (204/403/404), and the full-list pagination contract (200 entries returned in order).
+Integration tests use a temp-file SQLite DB + `httptest` recorder (mirroring the reference). Coverage includes: sort-key unit tests (including creature-wins-over-artifact/enchantment), batch add (entry/card counts, stored sort keys), duplicate lines, collector-number distinguishing printings, collector-number collapse without printing spec, collector-number in list response, image-URL backfill by collector number, list ordering across colors/types with mana-value then name tie-break, metadata backfill updating `mana_value` and re-sorting, `mana_value` migration converting a legacy NOT NULL DEFAULT 0 column to nullable with `0 → NULL`, the one-time `type_sort_key` recompute migration (creature-wins recomputation from stored `type_line`, idempotent via the `schema_meta` marker), self-offer, idempotent re-claim, 409-with-entry conflict, 404 after removal, clear-giver ownership, seeker/giver/non-party removal (204/403/404), the full-list pagination contract (200 entries returned in order).
 
 ## Workspace Conventions
 

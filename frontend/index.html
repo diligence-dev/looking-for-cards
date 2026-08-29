@@ -981,12 +981,15 @@
                 let left = typeLine;
                 const i = typeLine.indexOf(" — ");
                 if (i >= 0) left = typeLine.slice(0, i);
+                let first = 8;
                 for (const token of left.split(" ")) {
                     const key = token.toLowerCase();
                     if (SUPERTYPES.has(key)) continue;
-                    if (key in TYPE_ORDER) return TYPE_ORDER[key];
+                    if (!(key in TYPE_ORDER)) continue;
+                    if (key === "creature") return TYPE_ORDER[key];
+                    if (first === 8) first = TYPE_ORDER[key];
                 }
-                return 8;
+                return first;
             }
 
             function applyFiltersAndRender() {

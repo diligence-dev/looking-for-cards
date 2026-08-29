@@ -285,6 +285,53 @@ func TestMigrate_ManaValueNullableConvertsLegacyZero(t *testing.T) {
 	}
 }
 
+func TestMigrate_RecomputeTypeSortKey(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	db, err := server.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB #1: %v", err)
+	}
+	db.Exec(`INSERT INTO cards (name, set_code, collector_number, colors, type_line, mana_value, color_sort_key, type_sort_key) VALUES ('AlphaGolem','','','','Artifact Creature',2,5,2)`)
+	db.Exec(`INSERT INTO cards (name, set_code, collector_number, colors, type_line, mana_value, color_sort_key, type_sort_key) VALUES ('TherosGod','','','','Enchantment Creature',3,5,3)`)
+	db.Exec(`INSERT INTO cards (name, set_code, collector_number, colors, type_line, mana_value, color_sort_key, type_sort_key) VALUES ('SolRing','','','','Artifact',0,5,2)`)
+	if _, err := db.Exec(`DELETE FROM schema_meta WHERE key='type_sort_key_recompute_v1'`); err != nil {
+		t.Fatalf("clear marker: %v", err)
+	}
+	db.Close()
+
+	db2, err := server.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB #2: %v", err)
+	}
+	defer db2.Close()
+
+	for _, c := range []struct {
+		name string
+		want int
+	}{
+		{"AlphaGolem", 1},
+		{"TherosGod", 1},
+		{"SolRing", 2},
+	} {
+		var got int
+		if err := db2.QueryRow(`SELECT type_sort_key FROM cards WHERE name=?`, c.name).Scan(&got); err != nil {
+			t.Fatalf("read %s: %v", c.name, err)
+		}
+		if got != c.want {
+			t.Errorf("%s: type_sort_key=%d, want %d", c.name, got, c.want)
+		}
+	}
+
+	var marker int
+	if err := db2.QueryRow(`SELECT COUNT(*) FROM schema_meta WHERE key='type_sort_key_recompute_v1'`).Scan(&marker); err != nil {
+		t.Fatalf("query marker: %v", err)
+	}
+	if marker != 1 {
+		t.Fatalf("expected type_sort_key_recompute_v1 marker set, got count=%d", marker)
+	}
+}
+
 func TestList_TotalFieldReflectsCount(t *testing.T) {
 	srv := newTestServer(t)
 	seedEntry(t, srv.DB(), "Bolt", "", "", "R", "Instant", "alice")

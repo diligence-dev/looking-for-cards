@@ -82,9 +82,32 @@ func TestTypeSortKey_SkipSupertypes(t *testing.T) {
 	}
 }
 
-func TestTypeSortKey_FirstMatchWins(t *testing.T) {
-	if got := server.TypeSortKey("Artifact Creature"); got != 2 {
-		t.Errorf("TypeSortKey(\"Artifact Creature\") = %d, want 2 (Artifact beats Creature)", got)
+func TestTypeSortKey_CreatureWinsOverArtifactAndEnchantment(t *testing.T) {
+	cases := map[string]int{
+		"Artifact Creature":             1,
+		"Enchantment Creature":          1,
+		"Legendary Artifact Creature":   1,
+		"Legendary Enchantment Creature": 1,
+		"Artifact Creature — Golem":     1,
+		"Enchantment Creature — God":    1,
+	}
+	for typeLine, want := range cases {
+		if got := server.TypeSortKey(typeLine); got != want {
+			t.Errorf("TypeSortKey(%q) = %d, want %d (creature wins)", typeLine, got, want)
+		}
+	}
+}
+
+func TestTypeSortKey_NonCreatureFirstMatchWins(t *testing.T) {
+	cases := map[string]int{
+		"Artifact Land":      2,
+		"Enchantment Land":    3,
+		"Artifact — Vehicle": 2,
+	}
+	for typeLine, want := range cases {
+		if got := server.TypeSortKey(typeLine); got != want {
+			t.Errorf("TypeSortKey(%q) = %d, want %d (first match wins, no creature)", typeLine, got, want)
+		}
 	}
 }
 

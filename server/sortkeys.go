@@ -54,14 +54,22 @@ func TypeSortKey(typeLine string) int {
 	if i := strings.Index(typeLine, " — "); i >= 0 {
 		left = typeLine[:i]
 	}
+	first := 8
 	for _, token := range strings.Split(left, " ") {
 		key := strings.ToLower(token)
 		if supertypes[key] {
 			continue
 		}
-		if idx, ok := typeOrder[key]; ok {
+		idx, ok := typeOrder[key]
+		if !ok {
+			continue
+		}
+		if key == "creature" {
 			return idx
 		}
+		if first == 8 {
+			first = idx
+		}
 	}
-	return 8
+	return first
 }

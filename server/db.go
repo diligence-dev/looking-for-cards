@@ -3,6 +3,7 @@ package server
 import (
 	"database/sql"
 	"errors"
+	"log"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -72,7 +73,7 @@ func InitDB(path string) (*sql.DB, error) {
 	migrateAddCollectorNumber(db)
 	migrateAddManaValue(db)
 	migrateManaValueNullable(db)
-	migrateFixManaValues(db)
+	migrateRecomputeTypeSortKey(db)
 
 	return db, nil
 }
@@ -163,6 +164,67 @@ func migrateManaValueNullable(db *sql.DB) {
 	`)
 }
 
+// migrateRecomputeTypeSortKey recomputes type_sort_key for every card from its
+// stored type_line using the current TypeSortKey (which now treats Artifact
+// Creature and Enchantment Creature as Creature). Idempotent via the
+// schema_meta marker 'type_sort_key_recompute_v1'.
+func migrateRecomputeTypeSortKey(db *sql.DB) {
+	if _, err := db.Exec(`CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT)`); err != nil {
+		log.Printf("migrateRecomputeTypeSortKey: create schema_meta: %v", err)
+		return
+	}
+	var done int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_meta WHERE key='type_sort_key_recompute_v1'`).Scan(&done); err != nil {
+		log.Printf("migrateRecomputeTypeSortKey: read marker: %v", err)
+		return
+	}
+	if done > 0 {
+		return
+	}
+
+	rows, err := db.Query(`SELECT id, type_line FROM cards`)
+	if err != nil {
+		log.Printf("migrateRecomputeTypeSortKey: query cards: %v", err)
+		return
+	}
+	type row struct {
+		id       int
+		typeLine string
+	}
+	var cards []row
+	for rows.Next() {
+		var r row
+		if err := rows.Scan(&r.id, &r.typeLine); err != nil {
+			rows.Close()
+			log.Printf("migrateRecomputeTypeSortKey: scan: %v", err)
+			return
+		}
+		cards = append(cards, r)
+	}
+	rows.Close()
+
+	tx, err := db.Begin()
+	if err != nil {
+		log.Printf("migrateRecomputeTypeSortKey: begin tx: %v", err)
+		return
+	}
+	for _, c := range cards {
+		if _, err := tx.Exec(`UPDATE cards SET type_sort_key=? WHERE id=?`, TypeSortKey(c.typeLine), c.id); err != nil {
+			tx.Rollback()
+			log.Printf("migrateRecomputeTypeSortKey: update id=%d: %v", c.id, err)
+			return
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("migrateRecomputeTypeSortKey: commit: %v", err)
+		return
+	}
+
+	if _, err := db.Exec(`INSERT INTO schema_meta(key, value) VALUES('type_sort_key_recompute_v1', 'done')`); err != nil {
+		log.Printf("migrateRecomputeTypeSortKey: set marker: %v", err)
+	}
+}
+
 func UpsertCard(db *sql.DB, name, setCode, collectorNumber, colors, typeLine string, manaValue float64, imageURL string) (int, error) {
 	colorKey := ColorSortKey(colors)
 	typeKey := TypeSortKey(typeLine)
@@ -241,7 +303,7 @@ func getEntry(db *sql.DB, entryID int) (Entry, error) {
 
 func ListEntries(db *sql.DB) ([]Entry, error) {
 	rows, err := db.Query(`
-		SELECT `+entrySelectCols+`
+		SELECT ` + entrySelectCols + `
 		FROM entries JOIN cards ON entries.card_id = cards.id
 		ORDER BY cards.color_sort_key, cards.type_sort_key, cards.mana_value, cards.name, entries.created_at, entries.id
 	`)
