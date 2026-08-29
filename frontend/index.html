@@ -96,22 +96,6 @@
                 z-index: 10;
             }
 
-            .topbar .who {
-                font-weight: bold;
-                color: #e94560;
-            }
-
-            .topbar a {
-                color: #888;
-                text-decoration: none;
-                margin-right: 12px;
-                font-size: 13px;
-            }
-
-            .topbar a:hover {
-                color: #eee;
-            }
-
             .topbar button,
             .topbar input,
             .topbar label,
@@ -226,7 +210,7 @@
                 --card-min: 200px;
                 display: grid;
                 grid-template-columns: repeat(auto-fill, minmax(var(--card-min), 1fr));
-                gap: 20px;
+                gap: 2px;
                 margin-bottom: 40px;
                 /* Let the browser handle vertical scroll, we handle pinch. */
                 touch-action: pan-y;
@@ -355,14 +339,10 @@
                 background: #3a4470;
             }
 
-            /* Add section */
-            .add-section {
-                max-width: 600px;
-                margin-bottom: 40px;
-            }
-
+            /* Add section (inside modal) */
             .add-section h2 {
                 margin-bottom: 10px;
+                padding-right: 40px;
             }
 
             .add-section textarea {
@@ -415,6 +395,52 @@
                 color: #ff6b6b;
             }
 
+            /* Modal */
+            .modal {
+                position: fixed;
+                inset: 0;
+                z-index: 50;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }
+
+            .modal-backdrop {
+                position: absolute;
+                inset: 0;
+                background: rgba(0, 0, 0, 0.6);
+            }
+
+            .modal-card {
+                position: relative;
+                background: #16213e;
+                border-radius: 12px;
+                padding: 24px;
+                max-width: 600px;
+                width: 100%;
+                max-height: 90vh;
+                overflow-y: auto;
+            }
+
+            .modal-close {
+                position: absolute;
+                top: 8px;
+                right: 8px;
+                width: 32px;
+                height: 32px;
+                background: transparent;
+                color: #eee;
+                border: none;
+                font-size: 24px;
+                line-height: 1;
+                cursor: pointer;
+            }
+
+            .modal-close:hover {
+                color: #e94560;
+            }
+
             /* Toast */
             .toast {
                 position: fixed;
@@ -463,9 +489,7 @@
 
         <div id="screen-b" class="screen hidden">
             <div class="topbar">
-                <span class="who">@<span id="current-user"></span></span>
-                <a id="change-link" href="#">change</a>
-                <button id="refresh-btn">Refresh</button>
+                <button id="seek-btn">I'm seeking...</button>
                 <input id="card-filter" type="search" placeholder="card name" />
                 <select id="color-filter">
                     <option value="">all colors</option>
@@ -501,12 +525,18 @@
             </div>
             <div id="grid" class="card-grid"></div>
 
-            <div class="add-section">
-                <h2>I'm looking for the following cards</h2>
-                <textarea id="card-list" placeholder="One card per line, e.g.&#10;Lightning Bolt&#10;2 Counterspell&#10;Faerie Guidemother (ELD) 11"></textarea>
-                <button id="add-btn">Add cards</button>
-                <div id="add-progress"></div>
-                <div id="add-results"></div>
+            <div id="seek-modal" class="modal hidden">
+                <div class="modal-backdrop" id="seek-backdrop"></div>
+                <div class="modal-card">
+                    <button class="modal-close" id="seek-close" aria-label="Close">&times;</button>
+                    <div class="add-section">
+                        <h2>I'm looking for the following cards...</h2>
+                        <textarea id="card-list" placeholder="One card per line, e.g.&#10;Lightning Bolt&#10;2 Counterspell&#10;Faerie Guidemother (ELD) 11"></textarea>
+                        <button id="add-btn">Add cards</button>
+                        <div id="add-progress"></div>
+                        <div id="add-results"></div>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -527,9 +557,6 @@
             const screenB = $("screen-b");
             const nameInput = $("name-input");
             const continueBtn = $("continue-btn");
-            const currentUserEl = $("current-user");
-            const changeLink = $("change-link");
-            const refreshBtn = $("refresh-btn");
             const cardFilter = $("card-filter");
             const colorFilter = $("color-filter");
             const typeFilter = $("type-filter");
@@ -542,6 +569,10 @@
             const addProgress = $("add-progress");
             const addResults = $("add-results");
             const toastEl = $("toast");
+            const seekBtn = $("seek-btn");
+            const seekModal = $("seek-modal");
+            const seekBackdrop = $("seek-backdrop");
+            const seekClose = $("seek-close");
 
             function escapeHtml(s) {
                 return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -762,7 +793,6 @@
             function showScreenB() {
                 screenA.classList.add("hidden");
                 screenB.classList.remove("hidden");
-                currentUserEl.textContent = currentUser;
             }
 
             continueBtn.onclick = () => {
@@ -781,14 +811,18 @@
                 continueBtn.disabled = !nameInput.value.trim();
             });
 
-            changeLink.onclick = (e) => {
-                e.preventDefault();
-                currentUser = null;
-                history.replaceState(null, "", "/");
-                showScreenA();
+            seekBtn.onclick = () => {
+                seekModal.classList.remove("hidden");
+                cardList.focus();
             };
-
-            refreshBtn.onclick = loadEntries;
+            seekClose.onclick = closeSeekModal;
+            seekBackdrop.onclick = closeSeekModal;
+            document.addEventListener("keydown", (e) => {
+                if (e.key === "Escape" && !seekModal.classList.contains("hidden")) closeSeekModal();
+            });
+            function closeSeekModal() {
+                seekModal.classList.add("hidden");
+            }
             cardFilter.addEventListener("input", applyFiltersAndRender);
             colorFilter.addEventListener("change", applyFiltersAndRender);
             typeFilter.addEventListener("change", applyFiltersAndRender);
