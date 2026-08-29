@@ -355,22 +355,6 @@
                 background: #3a4470;
             }
 
-            .show-more {
-                display: block;
-                margin: 0 auto 40px;
-                padding: 10px 30px;
-                background: #16213e;
-                color: #eee;
-                border: 2px solid #333;
-                border-radius: 8px;
-                cursor: pointer;
-                font-size: 14px;
-            }
-
-            .show-more:hover {
-                border-color: #e94560;
-            }
-
             /* Add section */
             .add-section {
                 max-width: 600px;
@@ -516,7 +500,6 @@
                 <label><input id="hide-giver" type="checkbox" /> Hide giver found</label>
             </div>
             <div id="grid" class="card-grid"></div>
-            <button id="show-more" class="show-more hidden">Show more</button>
 
             <div class="add-section">
                 <h2>I'm looking for the following cards</h2>
@@ -532,10 +515,7 @@
         <script>
             let currentUser = null;
             let allEntries = [];
-            let displayedCount = 0;
-            let currentFiltered = [];
             let entriesById = {};
-            const PAGE_SIZE = 50;
 
             const PLACEHOLDER =
                 "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='280'><rect width='100%25' height='100%25' fill='%230f1629'/><text x='50%25' y='50%25' fill='%23888' font-family='sans-serif' font-size='14' text-anchor='middle' dominant-baseline='middle'>no image</text></svg>";
@@ -557,7 +537,6 @@
             const seekerFilter = $("seeker-filter");
             const hideGiver = $("hide-giver");
             const grid = $("grid");
-            const showMoreBtn = $("show-more");
             const cardList = $("card-list");
             const addBtn = $("add-btn");
             const addProgress = $("add-progress");
@@ -875,13 +854,6 @@
 
             document.addEventListener("click", closeAllPanels);
 
-            showMoreBtn.onclick = () => {
-                const prev = displayedCount;
-                displayedCount += PAGE_SIZE;
-                appendTiles(currentFiltered.slice(prev, displayedCount));
-                showMoreBtn.classList.toggle("hidden", displayedCount >= currentFiltered.length);
-            };
-
             async function loadEntries() {
                 try {
                     const res = await fetch("/api/entries");
@@ -981,7 +953,7 @@
                 const colorF = colorFilter.value;
                 const typeF = typeFilter.value;
                 const hide = hideGiver.checked;
-                currentFiltered = allEntries.filter((e) => {
+                const filtered = allEntries.filter((e) => {
                     if (cardF && !e.card.name.toLowerCase().includes(cardF)) return false;
                     if (colorF && colorGroup(e.card.colors) !== colorF) return false;
                     if (typeF && String(typeGroup(e.card.type_line)) !== typeF) return false;
@@ -990,20 +962,13 @@
                     if (hide && e.giver !== "") return false;
                     return true;
                 });
-                displayedCount = PAGE_SIZE;
-                render(currentFiltered.slice(0, displayedCount));
-                showMoreBtn.classList.toggle("hidden", displayedCount >= currentFiltered.length);
+                render(filtered);
             }
 
             function render(entries) {
                 entriesById = {};
                 for (const e of entries) entriesById[e.id] = e;
                 grid.innerHTML = entries.map(tileHTML).join("");
-            }
-
-            function appendTiles(entries) {
-                for (const e of entries) entriesById[e.id] = e;
-                grid.insertAdjacentHTML("beforeend", entries.map(tileHTML).join(""));
             }
 
             function tileHTML(e) {
