@@ -447,6 +447,111 @@
                 color: #e94560;
             }
 
+            /* Occasion picker (shared by My occasions + add-cards modals) */
+            .occ-list {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+                margin-bottom: 10px;
+                max-height: 200px;
+                overflow-y: auto;
+            }
+
+            .occ-list label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                cursor: pointer;
+                font-size: 13px;
+                padding: 4px 6px;
+                border-radius: 4px;
+            }
+
+            .occ-list label:hover {
+                background: #1a2540;
+            }
+
+            .occ-list input[type="checkbox"] {
+                accent-color: #e94560;
+                cursor: pointer;
+            }
+
+            .add-section .occ-new-toggle {
+                background: #2a3450;
+                margin-top: 0;
+                padding: 8px 14px;
+            }
+
+            .add-section .occ-new-toggle:hover {
+                background: #3a4470;
+            }
+
+            .occ-new-form {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                align-items: center;
+                margin: 8px 0 12px;
+            }
+
+            .occ-new-form input[type="text"],
+            .occ-new-form input[type="date"] {
+                padding: 8px 10px;
+                font-size: 13px;
+                border: 2px solid #333;
+                border-radius: 8px;
+                background: #1a1a2e;
+                color: #eee;
+            }
+
+            .occ-new-form input:focus {
+                outline: none;
+                border-color: #e94560;
+            }
+
+            .occ-new-form label {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+                font-size: 13px;
+                cursor: pointer;
+            }
+
+            .occ-new-form .occ-create {
+                margin-top: 0;
+                padding: 8px 14px;
+            }
+
+            /* Screen A occasion confirmation */
+            #occasion-confirm {
+                margin-top: 16px;
+                text-align: left;
+            }
+
+            #occasion-confirm p {
+                margin-bottom: 8px;
+            }
+
+            #occasion-confirm-list {
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            #occasion-confirm-list label {
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 14px;
+                cursor: pointer;
+                color: #eee;
+            }
+
+            #occasion-confirm-list input[type="checkbox"] {
+                accent-color: #e94560;
+                cursor: pointer;
+            }
+
             /* Toast */
             .toast {
                 position: fixed;
@@ -490,12 +595,21 @@
                 <p>What's your name?</p>
                 <input id="name-input" type="text" placeholder="Your name" autocomplete="off" />
                 <button id="continue-btn" disabled>Continue</button>
+                <div id="occasion-confirm" class="hidden">
+                    <p>Are you going to these occasions?</p>
+                    <div id="occasion-confirm-list"></div>
+                </div>
             </div>
         </div>
 
         <div id="screen-b" class="screen hidden">
             <div class="topbar">
                 <button id="seek-btn">I'm seeking...</button>
+                <button id="my-occasions-btn">My occasions</button>
+                <div class="multiselect" id="occasion-filter">
+                    <button class="ms-trigger" type="button">all occasions</button>
+                    <div class="ms-panel hidden"></div>
+                </div>
                 <input id="card-filter" type="search" placeholder="card name" />
                 <select id="color-filter">
                     <option value="">all colors</option>
@@ -537,11 +651,24 @@
                     <button class="modal-close" id="seek-close" aria-label="Close">&times;</button>
                     <div class="add-section">
                         <h2>I'm looking for the following cards...</h2>
+                        <div id="add-occasions-picker"></div>
                         <p class="hint">If using CubeCobra: filter 'status:"not owned"', Export, Card Versions (.txt), copy-paste content here</p>
                         <textarea id="card-list" placeholder="One card per line, e.g.&#10;Lightning Bolt&#10;2 Counterspell&#10;Faerie Guidemother (ELD) 11"></textarea>
                         <button id="add-btn">Add cards</button>
                         <div id="add-progress"></div>
                         <div id="add-results"></div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="occasions-modal" class="modal hidden">
+                <div class="modal-backdrop" id="occasions-backdrop"></div>
+                <div class="modal-card">
+                    <button class="modal-close" id="occasions-close" aria-label="Close">&times;</button>
+                    <div class="add-section">
+                        <h2>My occasions</h2>
+                        <div id="my-occasions-picker"></div>
+                        <button id="my-occasions-save">Save</button>
                     </div>
                 </div>
             </div>
@@ -553,6 +680,10 @@
             let currentUser = null;
             let allEntries = [];
             let entriesById = {};
+            let allOccasions = [];
+            let myOccasionIDs = new Set();
+            const occasionSelected = new Set();
+            const occasionPastByName = {};
 
             const PLACEHOLDER =
                 "data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='200' height='280'><rect width='100%25' height='100%25' fill='%230f1629'/><text x='50%25' y='50%25' fill='%23888' font-family='sans-serif' font-size='14' text-anchor='middle' dominant-baseline='middle'>no image</text></svg>";
@@ -580,6 +711,12 @@
             const seekModal = $("seek-modal");
             const seekBackdrop = $("seek-backdrop");
             const seekClose = $("seek-close");
+            const myOccasionsBtn = $("my-occasions-btn");
+            const occasionsModal = $("occasions-modal");
+            const occasionsBackdrop = $("occasions-backdrop");
+            const occasionsClose = $("occasions-close");
+            const myOccasionsSave = $("my-occasions-save");
+            const occasionFilter = $("occasion-filter");
 
             function escapeHtml(s) {
                 return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -802,12 +939,59 @@
                 screenB.classList.remove("hidden");
             }
 
-            continueBtn.onclick = () => {
+            // Screen A: when the URL carries ?occasion= params, show a
+            // confirmation block so a new user joins those occasions on submit.
+            // Existing users keep the occasions they already saved.
+            async function maybeShowOccasionConfirm() {
+                const box = $("occasion-confirm");
+                const list = $("occasion-confirm-list");
+                box.classList.add("hidden");
+                list.innerHTML = "";
+                const wanted = new URLSearchParams(location.search).getAll("occasion").filter(Boolean);
+                if (!wanted.length) return;
+                try {
+                    await fetchAllOccasions();
+                } catch (e) {
+                    return;
+                }
+                const known = allOccasions.filter((o) => wanted.includes(o.name));
+                if (!known.length) return;
+                box.classList.remove("hidden");
+                list.innerHTML = known
+                    .map((o) => `<label><input type="checkbox" data-occ-id="${o.id}" checked /><span>${escapeHtml(occasionLabel(o))}</span></label>`)
+                    .join("");
+            }
+
+            continueBtn.onclick = async () => {
                 const name = nameInput.value.trim();
                 if (!name) return;
                 currentUser = name;
-                history.replaceState(null, "", "?user=" + encodeURIComponent(currentUser));
+                const p = new URLSearchParams(location.search);
+                p.set("user", currentUser);
+                history.replaceState(null, "", "?" + p.toString());
+                let mine = [];
+                try {
+                    const res = await fetch(`/api/occasions/mine?user=${encodeURIComponent(currentUser)}`);
+                    if (res.ok) mine = (await res.json()).occasions || [];
+                } catch (e) {}
+                if (mine.length) {
+                    myOccasionIDs = new Set(mine.map((o) => o.id));
+                } else {
+                    const checked = [...document.querySelectorAll("#occasion-confirm-list input:checked")].map((cb) => parseInt(cb.dataset.occId, 10));
+                    if (checked.length) {
+                        try {
+                            const res = await fetch(`/api/occasions/mine?user=${encodeURIComponent(currentUser)}`, {
+                                method: "POST",
+                                headers: { "Content-Type": "application/json" },
+                                body: JSON.stringify({ occasion_ids: checked }),
+                            });
+                            if (res.ok) myOccasionIDs = new Set(checked);
+                        } catch (e) {}
+                    }
+                }
                 showScreenB();
+                parseOccasionsFromURL();
+                await loadOccasions();
                 loadEntries();
             };
 
@@ -818,19 +1002,33 @@
                 continueBtn.disabled = !nameInput.value.trim();
             });
 
+            // Add-cards modal: an occasion picker sits above the textarea.
+            // The seeker must have at least one occasion checked to add cards;
+            // occasions are saved to the seeker before the entries are posted.
+            let addPickerSelected = new Set();
+            function updateAddBtn() {
+                addBtn.disabled = !(addPickerSelected.size > 0 && cardList.value.trim());
+            }
             seekBtn.onclick = () => {
+                addPickerSelected = new Set(myOccasionIDs);
+                renderOccasionPicker($("add-occasions-picker"), addPickerSelected, { allowCreate: true }, updateAddBtn);
+                updateAddBtn();
                 seekModal.classList.remove("hidden");
                 cardList.focus();
             };
             seekClose.onclick = closeSeekModal;
             seekBackdrop.onclick = closeSeekModal;
             document.addEventListener("keydown", (e) => {
-                if (e.key === "Escape" && !seekModal.classList.contains("hidden")) closeSeekModal();
+                if (e.key === "Escape") {
+                    if (!seekModal.classList.contains("hidden")) closeSeekModal();
+                    if (!occasionsModal.classList.contains("hidden")) closeOccasionsModal();
+                }
             });
             function closeSeekModal() {
                 seekModal.classList.add("hidden");
             }
             cardFilter.addEventListener("input", applyFiltersAndRender);
+            cardList.addEventListener("input", updateAddBtn);
             colorFilter.addEventListener("change", applyFiltersAndRender);
             typeFilter.addEventListener("change", applyFiltersAndRender);
             hideGiver.addEventListener("change", applyFiltersAndRender);
@@ -846,7 +1044,7 @@
                 document.querySelectorAll(".ms-trigger.open").forEach((t) => t.classList.remove("open"));
             }
 
-            function setupMultiselect(root, selected, allLabel, countLabel) {
+            function setupMultiselect(root, selected, allLabel, countLabel, onChange) {
                 const trigger = root.querySelector(".ms-trigger");
                 const panel = root.querySelector(".ms-panel");
                 trigger.addEventListener("click", (e) => {
@@ -863,18 +1061,21 @@
                     trigger.textContent = selected.size ? `${countLabel} (${selected.size})` : allLabel;
                 }
                 function populate(names) {
+                    // Arrays keep their order (used by the occasion filter to
+                    // show past occasions last); Sets are sorted A-Z.
+                    const list = Array.isArray(names) ? [...names] : [...names].sort((a, b) => a.localeCompare(b));
+                    const known = new Set(list);
                     for (const name of [...selected]) {
-                        if (!names.has(name)) selected.delete(name);
+                        if (!known.has(name)) selected.delete(name);
                     }
-                    const sorted = [...names].sort((a, b) => a.localeCompare(b));
-                    if (!sorted.length) {
+                    if (!list.length) {
                         panel.classList.add("empty");
                         panel.innerHTML = "no names yet";
                         updateTrigger();
                         return;
                     }
                     panel.classList.remove("empty");
-                    panel.innerHTML = sorted
+                    panel.innerHTML = list
                         .map((name) => `<label><input type="checkbox" value="${escapeHtml(name)}" ${selected.has(name) ? "checked" : ""} /><span>${escapeHtml(name)}</span></label>`)
                         .join("");
                     panel.querySelectorAll('input[type="checkbox"]').forEach((cb) => {
@@ -882,7 +1083,7 @@
                             if (cb.checked) selected.add(cb.value);
                             else selected.delete(cb.value);
                             updateTrigger();
-                            applyFiltersAndRender();
+                            (onChange || applyFiltersAndRender)();
                         });
                     });
                     updateTrigger();
@@ -894,6 +1095,192 @@
             const seekerMS = setupMultiselect(seekerFilter, seekerSelected, "all seekers", "seekers");
 
             document.addEventListener("click", closeAllPanels);
+
+            // Occasions: tied to seekers (not entries); entries inherit their
+            // seeker's occasions. Filtered client-side by occasion name, synced
+            // to the URL as repeated ?occasion=<name> params.
+            const occasionMS = setupMultiselect(occasionFilter, occasionSelected, "all occasions", "occasions", () => {
+                syncOccasionURL();
+                applyFiltersAndRender();
+            });
+
+            function rebuildPastMap() {
+                for (const k of Object.keys(occasionPastByName)) delete occasionPastByName[k];
+                for (const o of allOccasions) occasionPastByName[o.name] = o.past;
+            }
+
+            async function fetchAllOccasions() {
+                const res = await fetch("/api/occasions?include_past=true");
+                if (!res.ok) throw new Error("failed");
+                const data = await res.json();
+                allOccasions = (data.occasions || []).sort((a, b) => a.name.localeCompare(b.name));
+                rebuildPastMap();
+            }
+
+            async function fetchMyOccasions() {
+                const res = await fetch(`/api/occasions/mine?user=${encodeURIComponent(currentUser)}`);
+                if (!res.ok) throw new Error("failed");
+                const data = await res.json();
+                myOccasionIDs = new Set((data.occasions || []).map((o) => o.id));
+            }
+
+            async function loadOccasions() {
+                try {
+                    await fetchAllOccasions();
+                } catch (e) {
+                    toast("Network error — try Refresh.");
+                    return;
+                }
+                if (currentUser) {
+                    try {
+                        await fetchMyOccasions();
+                    } catch (e) {}
+                } else {
+                    myOccasionIDs = new Set();
+                }
+                populateOccasionFilter();
+            }
+
+            function populateOccasionFilter() {
+                const known = new Set(allOccasions.map((o) => o.name));
+                const fresh = allOccasions.filter((o) => !o.past).map((o) => o.name);
+                const pastSel = allOccasions.filter((o) => o.past && occasionSelected.has(o.name)).map((o) => o.name);
+                // Unknown names (e.g. a typo in a shared link) stay visible so
+                // they can be un-checked instead of silently vanishing.
+                const unknownSel = [...occasionSelected].filter((n) => !known.has(n)).sort((a, b) => a.localeCompare(b));
+                occasionMS.populate([...fresh, ...pastSel, ...unknownSel]);
+            }
+
+            function parseOccasionsFromURL() {
+                occasionSelected.clear();
+                for (const name of new URLSearchParams(location.search).getAll("occasion")) {
+                    if (name) occasionSelected.add(name);
+                }
+            }
+
+            function syncOccasionURL() {
+                const prev = new URLSearchParams(location.search);
+                const next = new URLSearchParams();
+                const user = prev.get("user");
+                if (user) next.set("user", user);
+                for (const name of occasionSelected) next.append("occasion", name);
+                const qs = next.toString();
+                history.replaceState(null, "", qs ? "?" + qs : location.pathname);
+            }
+
+            function occasionLabel(o) {
+                const when = o.date_or_recurring === "recurring" ? "recurring" : o.date_or_recurring;
+                return `${o.name} · ${when}`;
+            }
+
+            // Shared occasion checkbox list + "+ New occasion" sub-form.
+            // selected is a live Set of occasion ids; onChange fires on
+            // check/uncheck and after creating an occasion.
+            let occPickerSeq = 0;
+            function renderOccasionPicker(container, selected, opts, onChange) {
+                const allowCreate = !opts || opts.allowCreate !== false;
+                const radioName = "occ-type-" + ++occPickerSeq;
+                const visible = allOccasions.filter((o) => !o.past || selected.has(o.id));
+                container.innerHTML = `
+                    <div class="occ-list">${visible.map((o) => `<label><input type="checkbox" data-occ-id="${o.id}" ${selected.has(o.id) ? "checked" : ""} /><span>${escapeHtml(occasionLabel(o))}</span></label>`).join("") || "no occasions yet"}</div>
+                    ${allowCreate ? `<button type="button" class="occ-new-toggle">+ New occasion</button>
+                    <div class="occ-new-form hidden">
+                        <input class="occ-name" type="text" placeholder="Occasion name" />
+                        <label><input type="radio" name="${radioName}" value="recurring" checked /> Recurring</label>
+                        <label><input type="radio" name="${radioName}" value="onetime" /> One-time</label>
+                        <input class="occ-date hidden" type="date" />
+                        <button type="button" class="occ-create">Create</button>
+                    </div>` : ""}`;
+                container.querySelectorAll(".occ-list input[type=checkbox]").forEach((cb) => {
+                    cb.addEventListener("change", () => {
+                        const id = parseInt(cb.dataset.occId, 10);
+                        if (cb.checked) selected.add(id);
+                        else selected.delete(id);
+                        if (onChange) onChange();
+                    });
+                });
+                if (!allowCreate) return selected;
+                const toggle = container.querySelector(".occ-new-toggle");
+                const form = container.querySelector(".occ-new-form");
+                const dateInput = container.querySelector(".occ-date");
+                toggle.addEventListener("click", () => form.classList.toggle("hidden"));
+                container.querySelectorAll(`input[name="${radioName}"]`).forEach((r) => {
+                    r.addEventListener("change", () => {
+                        dateInput.classList.toggle("hidden", container.querySelector(`input[name="${radioName}"]:checked`).value !== "onetime");
+                    });
+                });
+                container.querySelector(".occ-create").addEventListener("click", async () => {
+                    const name = container.querySelector(".occ-name").value.trim();
+                    const oneTime = container.querySelector(`input[name="${radioName}"]:checked`).value === "onetime";
+                    const dateOrRecurring = oneTime ? dateInput.value : "recurring";
+                    if (!name || !dateOrRecurring) {
+                        toast("Name and date are required.");
+                        return;
+                    }
+                    try {
+                        const res = await fetch(`/api/occasions?user=${encodeURIComponent(currentUser)}`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ name, date_or_recurring: dateOrRecurring }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (res.status === 409) {
+                            toast("That occasion already exists.");
+                            return;
+                        }
+                        if (!res.ok) {
+                            toast(data.error || "Failed to create occasion.");
+                            return;
+                        }
+                        allOccasions.push(data);
+                        allOccasions.sort((a, b) => a.name.localeCompare(b.name));
+                        rebuildPastMap();
+                        selected.add(data.id);
+                        renderOccasionPicker(container, selected, opts, onChange);
+                        populateOccasionFilter();
+                        if (onChange) onChange();
+                    } catch (e) {
+                        toast("Network error — try Refresh.");
+                    }
+                });
+                return selected;
+            }
+
+            // "My occasions" modal.
+            let myPickerSelected = new Set();
+            function updateMySaveBtn() {
+                myOccasionsSave.disabled = myPickerSelected.size === 0;
+            }
+            myOccasionsBtn.onclick = () => {
+                myPickerSelected = new Set(myOccasionIDs);
+                renderOccasionPicker($("my-occasions-picker"), myPickerSelected, { allowCreate: true }, updateMySaveBtn);
+                updateMySaveBtn();
+                occasionsModal.classList.remove("hidden");
+            };
+            occasionsClose.onclick = closeOccasionsModal;
+            occasionsBackdrop.onclick = closeOccasionsModal;
+            function closeOccasionsModal() {
+                occasionsModal.classList.add("hidden");
+            }
+            myOccasionsSave.onclick = async () => {
+                try {
+                    const res = await fetch(`/api/occasions/mine?user=${encodeURIComponent(currentUser)}`, {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ occasion_ids: [...myPickerSelected] }),
+                    });
+                    if (!res.ok) {
+                        const data = await res.json().catch(() => ({}));
+                        toast(data.error || "Failed to save occasions.");
+                        return;
+                    }
+                    myOccasionIDs = new Set(myPickerSelected);
+                    toast("Saved.");
+                    loadEntries();
+                } catch (e) {
+                    toast("Network error — try Refresh.");
+                }
+            };
 
             async function loadEntries() {
                 try {
@@ -1004,6 +1391,12 @@
                     if (seekerSelected.size && !seekerSelected.has(e.seeker)) return false;
                     if (giverSelected.size && !giverSelected.has(e.giver)) return false;
                     if (hide && e.giver !== "") return false;
+                    const entryOccasions = e.occasions || [];
+                    if (occasionSelected.size) {
+                        if (!entryOccasions.some((n) => occasionSelected.has(n))) return false;
+                    } else if (entryOccasions.length && entryOccasions.every((n) => occasionPastByName[n])) {
+                        return false;
+                    }
                     return true;
                 });
                 render(filtered);
@@ -1127,11 +1520,34 @@
                 try {
                     await processAdd();
                 } finally {
-                    addBtn.disabled = false;
+                    updateAddBtn();
                 }
             }
 
             async function processAdd() {
+                if (!addPickerSelected.size) {
+                    toast("Select at least one occasion.");
+                    return;
+                }
+                const same = addPickerSelected.size === myOccasionIDs.size && [...addPickerSelected].every((id) => myOccasionIDs.has(id));
+                if (!same) {
+                    try {
+                        const res = await fetch(`/api/occasions/mine?user=${encodeURIComponent(currentUser)}`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ occasion_ids: [...addPickerSelected] }),
+                        });
+                        if (!res.ok) {
+                            const data = await res.json().catch(() => ({}));
+                            toast(data.error || "Failed to save occasions.");
+                            return;
+                        }
+                        myOccasionIDs = new Set(addPickerSelected);
+                    } catch (e) {
+                        toast("Network error — try Refresh.");
+                        return;
+                    }
+                }
                 const text = cardList.value;
                 const rawLines = text.split("\n");
                 const units = [];
@@ -1246,24 +1662,40 @@
             function syncFromURL() {
                 const p = new URLSearchParams(location.search);
                 const u = p.get("user") || null;
+                parseOccasionsFromURL();
                 if (u && !currentUser) {
                     currentUser = u;
                     showScreenB();
-                    loadEntries();
+                    (async () => {
+                        await loadOccasions();
+                        loadEntries();
+                    })();
                 } else if (!u && currentUser) {
                     currentUser = null;
+                    myOccasionIDs = new Set();
                     showScreenA();
+                    maybeShowOccasionConfirm();
+                } else if (u) {
+                    populateOccasionFilter();
+                    applyFiltersAndRender();
+                } else {
+                    maybeShowOccasionConfirm();
                 }
             }
             window.addEventListener("popstate", syncFromURL);
 
             const params = new URLSearchParams(location.search);
             currentUser = params.get("user") || null;
+            parseOccasionsFromURL();
             if (currentUser) {
                 showScreenB();
-                loadEntries();
+                (async () => {
+                    await loadOccasions();
+                    loadEntries();
+                })();
             } else {
                 showScreenA();
+                maybeShowOccasionConfirm();
             }
         </script>
     </body>

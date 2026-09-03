@@ -22,11 +22,12 @@ type Card struct {
 }
 
 type Entry struct {
-	ID         int    `json:"id"`
-	Card       Card   `json:"card"`
-	SeekerName string `json:"seeker"`
-	GiverName  string `json:"giver"`
-	CreatedAt  string `json:"created_at"`
+	ID         int      `json:"id"`
+	Card       Card     `json:"card"`
+	SeekerName string   `json:"seeker"`
+	GiverName  string   `json:"giver"`
+	Occasions  []string `json:"occasions"`
+	CreatedAt  string   `json:"created_at"`
 }
 
 var ErrEntryNotFound = errors.New("entry not found")
@@ -64,10 +65,24 @@ func InitDB(path string) (*sql.DB, error) {
 		CREATE INDEX IF NOT EXISTS idx_entries_seeker ON entries(seeker_name);
 		CREATE INDEX IF NOT EXISTS idx_entries_giver  ON entries(giver_name);
 		CREATE INDEX IF NOT EXISTS idx_entries_card   ON entries(card_id);
+
+		CREATE TABLE IF NOT EXISTS occasions (
+			id              INTEGER PRIMARY KEY AUTOINCREMENT,
+			name            TEXT NOT NULL UNIQUE,
+			date_or_recurring TEXT NOT NULL
+		);
+		CREATE TABLE IF NOT EXISTS seeker_occasions (
+			seeker_name TEXT NOT NULL,
+			occasion_id INTEGER NOT NULL REFERENCES occasions(id),
+			PRIMARY KEY (seeker_name, occasion_id)
+		);
+		CREATE INDEX IF NOT EXISTS idx_seeker_occasions_occasion ON seeker_occasions(occasion_id);
 	`)
 	if err != nil {
 		return nil, err
 	}
+
+	migrateSeedHedwig(db)
 
 	migrateAddImageURL(db)
 	migrateAddCollectorNumber(db)
@@ -225,6 +240,42 @@ func migrateRecomputeTypeSortKey(db *sql.DB) {
 	}
 }
 
+// migrateSeedHedwig ensures the recurring 'hedwig' occasion exists and links
+// every seeker without occasions to it. Idempotent via INSERT OR IGNORE.
+func migrateSeedHedwig(db *sql.DB) {
+	if _, err := db.Exec(`INSERT OR IGNORE INTO occasions (name, date_or_recurring) VALUES ('hedwig', 'recurring')`); err != nil {
+		log.Printf("migrateSeedHedwig: insert hedwig: %v", err)
+		return
+	}
+	var hedwigID int
+	if err := db.QueryRow(`SELECT id FROM occasions WHERE name='hedwig'`).Scan(&hedwigID); err != nil {
+		log.Printf("migrateSeedHedwig: read hedwig id: %v", err)
+		return
+	}
+	rows, err := db.Query(`SELECT DISTINCT seeker_name FROM entries WHERE seeker_name NOT IN (SELECT seeker_name FROM seeker_occasions)`)
+	if err != nil {
+		log.Printf("migrateSeedHedwig: query unlinked seekers: %v", err)
+		return
+	}
+	var seekers []string
+	for rows.Next() {
+		var seeker string
+		if err := rows.Scan(&seeker); err != nil {
+			rows.Close()
+			log.Printf("migrateSeedHedwig: scan seeker: %v", err)
+			return
+		}
+		seekers = append(seekers, seeker)
+	}
+	rows.Close()
+	for _, seeker := range seekers {
+		if _, err := db.Exec(`INSERT OR IGNORE INTO seeker_occasions (seeker_name, occasion_id) VALUES (?, ?)`, seeker, hedwigID); err != nil {
+			log.Printf("migrateSeedHedwig: link %q: %v", seeker, err)
+			return
+		}
+	}
+}
+
 func UpsertCard(db *sql.DB, name, setCode, collectorNumber, colors, typeLine string, manaValue float64, imageURL string) (int, error) {
 	colorKey := ColorSortKey(colors)
 	typeKey := TypeSortKey(typeLine)
@@ -298,6 +349,14 @@ func getEntry(db *sql.DB, entryID int) (Entry, error) {
 	if err := scanEntry(row, &e); err != nil {
 		return Entry{}, err
 	}
+	names, err := SeekerOccasionNames(db, []string{e.SeekerName})
+	if err != nil {
+		return Entry{}, err
+	}
+	e.Occasions = names[e.SeekerName]
+	if e.Occasions == nil {
+		e.Occasions = []string{}
+	}
 	return e, nil
 }
 
@@ -320,7 +379,13 @@ func ListEntries(db *sql.DB) ([]Entry, error) {
 		}
 		entries = append(entries, e)
 	}
-	return entries, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := enrichEntries(db, entries); err != nil {
+		return nil, err
+	}
+	return entries, nil
 }
 
 func SetGiver(db *sql.DB, entryID int, requester string) (Entry, bool, error) {

@@ -26,6 +26,8 @@ func NewServer(db *sql.DB, frontend fs.FS) *Server {
 func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("/api/entries", s.handleEntries)
 	s.mux.HandleFunc("/api/cards/metadata", s.handleCardMetadata)
+	s.mux.HandleFunc("/api/occasions", s.handleOccasions)
+	s.mux.HandleFunc("/api/occasions/mine", s.handleMyOccasions)
 	s.mux.HandleFunc("POST /api/entries/{id}/giver", s.handleSetGiver)
 	s.mux.HandleFunc("DELETE /api/entries/{id}/giver", s.handleClearGiver)
 	s.mux.HandleFunc("POST /api/entries/{id}/remove", s.handleRemoveEntry)
