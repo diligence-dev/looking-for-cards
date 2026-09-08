@@ -373,3 +373,148 @@ func TestListEntries_OccasionsEmptyWhenSeekerHasNone(t *testing.T) {
 		t.Fatalf("expected empty occasions, got %v", arr)
 	}
 }
+
+func TestOccasionIsolation_BDoesNotSeeAWhenDisjoint(t *testing.T) {
+	srv := newTestServer(t)
+
+	// Create two occasions X and Y
+	if res := postOccasion(t, srv, "admin", "occasionX", "recurring"); res.Status != http.StatusCreated {
+		t.Fatalf("create X: expected 201, got %d: %s", res.Status, res.Body)
+	}
+	if res := postOccasion(t, srv, "admin", "occasionY", "recurring"); res.Status != http.StatusCreated {
+		t.Fatalf("create Y: expected 201, got %d: %s", res.Status, res.Body)
+	}
+	ids := occasionIDsByName(t, srv)
+	idX := ids["occasionX"]
+	idY := ids["occasionY"]
+
+	// A goes to X, B goes to Y
+	if res := setMyOccasions(t, srv, "A", []int{idX}); res.Status != http.StatusNoContent {
+		t.Fatalf("set A->X: expected 204, got %d: %s", res.Status, res.Body)
+	}
+	if res := setMyOccasions(t, srv, "B", []int{idY}); res.Status != http.StatusNoContent {
+		t.Fatalf("set B->Y: expected 204, got %d: %s", res.Status, res.Body)
+	}
+
+	// A adds a card
+	cards := []map[string]any{
+		{"name": "Lightning Bolt", "set": "", "colors": "R", "type_line": "Instant"},
+	}
+	res := postCards(t, srv, "A", cards)
+	if res.Status != http.StatusCreated {
+		t.Fatalf("A add card: expected 201, got %d: %s", res.Status, res.Body)
+	}
+
+	// B fetches entries - should see 0 because A and B share no occasion
+	bRes := doRequest(t, srv, http.MethodGet, "/api/entries?user=B", nil)
+	if bRes.Status != http.StatusOK {
+		t.Fatalf("B list: expected 200, got %d: %s", bRes.Status, bRes.Body)
+	}
+	var bResp struct {
+		Entries []map[string]any `json:"entries"`
+		Total   int              `json:"total"`
+	}
+	if err := json.Unmarshal(bRes.Body, &bResp); err != nil {
+		t.Fatalf("decode B: %v", err)
+	}
+	if bResp.Total != 0 {
+		t.Fatalf("BUG: B (occasionY) sees %d entries from A (occasionX) - expected 0, got %v", bResp.Total, bResp.Entries)
+	}
+
+	// A should still see own card (shares occasion with self)
+	aRes := doRequest(t, srv, http.MethodGet, "/api/entries?user=A", nil)
+	if aRes.Status != http.StatusOK {
+		t.Fatalf("A list: expected 200, got %d: %s", aRes.Status, aRes.Body)
+	}
+	var aResp struct {
+		Entries []map[string]any `json:"entries"`
+		Total   int              `json:"total"`
+	}
+	if err := json.Unmarshal(aRes.Body, &aResp); err != nil {
+		t.Fatalf("decode A: %v", err)
+	}
+	if aResp.Total != 1 {
+		t.Fatalf("A should see own card, expected 1 got %d", aResp.Total)
+	}
+
+	// User with overlapping occasion should see it - C goes to X too
+	if res := setMyOccasions(t, srv, "C", []int{idX}); res.Status != http.StatusNoContent {
+		t.Fatalf("set C->X: %d %s", res.Status, res.Body)
+	}
+	cRes := doRequest(t, srv, http.MethodGet, "/api/entries?user=C", nil)
+	if cRes.Status != http.StatusOK {
+		t.Fatalf("C list: %d %s", cRes.Status, cRes.Body)
+	}
+	var cResp struct {
+		Entries []map[string]any `json:"entries"`
+		Total   int              `json:"total"`
+	}
+	json.Unmarshal(cRes.Body, &cResp)
+	if cResp.Total != 1 {
+		t.Fatalf("C (same occasion X as A) should see 1 entry, got %d", cResp.Total)
+	}
+
+	// Anonymous (no user param) should still see all? Or at least not filtered empty - we expect 1 for backward compat
+	anonRes := doRequest(t, srv, http.MethodGet, "/api/entries", nil)
+	var anonResp struct {
+		Entries []map[string]any `json:"entries"`
+		Total   int              `json:"total"`
+	}
+	json.Unmarshal(anonRes.Body, &anonResp)
+	if anonResp.Total != 1 {
+		t.Fatalf("anonymous should see 1 (no filtering), got %d", anonResp.Total)
+	}
+}
+
+func TestOccasionIsolation_SharedOccasionVisible(t *testing.T) {
+	srv := newTestServer(t)
+	postOccasion(t, srv, "admin", "occasionX", "recurring")
+	postOccasion(t, srv, "admin", "occasionY", "recurring")
+	ids := occasionIDsByName(t, srv)
+	// A goes to X+Y, B goes to Y -> overlap on Y so B should see A's card
+	setMyOccasions(t, srv, "A", []int{ids["occasionX"], ids["occasionY"]})
+	setMyOccasions(t, srv, "B", []int{ids["occasionY"]})
+	postCards(t, srv, "A", []map[string]any{{"name": "Bolt", "colors": "R", "type_line": "Instant"}})
+	bRes := doRequest(t, srv, http.MethodGet, "/api/entries?user=B", nil)
+	var resp struct {
+		Total int `json:"total"`
+	}
+	json.Unmarshal(bRes.Body, &resp)
+	if resp.Total != 1 {
+		t.Fatalf("B shares Y with A (X+Y), expected 1 got %d", resp.Total)
+	}
+}
+
+func TestOccasionIsolation_ViewerWithNoOccasionsSeesAll(t *testing.T) {
+	srv := newTestServer(t)
+	postOccasion(t, srv, "admin", "occasionX", "recurring")
+	ids := occasionIDsByName(t, srv)
+	setMyOccasions(t, srv, "A", []int{ids["occasionX"]})
+	postCards(t, srv, "A", []map[string]any{{"name": "Bolt", "colors": "R", "type_line": "Instant"}})
+	// B has no occasions set - should see all (or at least not be filtered away)
+	bRes := doRequest(t, srv, http.MethodGet, "/api/entries?user=B", nil)
+	var resp struct {
+		Total int `json:"total"`
+	}
+	json.Unmarshal(bRes.Body, &resp)
+	if resp.Total != 1 {
+		t.Fatalf("viewer with no occasions should see all, got %d", resp.Total)
+	}
+}
+
+func TestOccasionIsolation_EntryWithNoOccasionsAlwaysVisible(t *testing.T) {
+	srv := newTestServer(t)
+	postOccasion(t, srv, "admin", "occasionY", "recurring")
+	ids := occasionIDsByName(t, srv)
+	setMyOccasions(t, srv, "B", []int{ids["occasionY"]})
+	// A has no occasions (create entry directly via DB helper without setting)
+	seedEntry(t, srv.DB(), "Bolt", "", "", "R", "Instant", "A")
+	bRes := doRequest(t, srv, http.MethodGet, "/api/entries?user=B", nil)
+	var resp struct {
+		Total int `json:"total"`
+	}
+	json.Unmarshal(bRes.Body, &resp)
+	if resp.Total != 1 {
+		t.Fatalf("entry with no occasions should be visible to anyone, got %d", resp.Total)
+	}
+}

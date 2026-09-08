@@ -1290,7 +1290,8 @@
 
             async function loadEntries() {
                 try {
-                    const res = await fetch("/api/entries");
+                    const url = currentUser ? `/api/entries?user=${encodeURIComponent(currentUser)}` : "/api/entries";
+                    const res = await fetch(url);
                     if (!res.ok) throw new Error("failed");
                     const data = await res.json();
                     allEntries = data.entries || [];
@@ -1390,6 +1391,11 @@
                 const colorF = colorFilter.value;
                 const typeF = typeFilter.value;
                 const hide = hideGiver.checked;
+                let myOccasionNames = null;
+                if (!occasionSelected.size && myOccasionIDs.size) {
+                    myOccasionNames = new Set();
+                    for (const o of allOccasions) if (myOccasionIDs.has(o.id)) myOccasionNames.add(o.name);
+                }
                 const filtered = allEntries.filter((e) => {
                     if (cardF && !e.card.name.toLowerCase().includes(cardF)) return false;
                     if (colorF && colorGroup(e.card.colors) !== colorF) return false;
@@ -1400,8 +1406,9 @@
                     const entryOccasions = e.occasions || [];
                     if (occasionSelected.size) {
                         if (!entryOccasions.some((n) => occasionSelected.has(n))) return false;
-                    } else if (entryOccasions.length && entryOccasions.every((n) => occasionPastByName[n])) {
-                        return false;
+                    } else {
+                        if (entryOccasions.length && entryOccasions.every((n) => occasionPastByName[n])) return false;
+                        if (myOccasionNames && entryOccasions.length && !entryOccasions.some((n) => myOccasionNames.has(n))) return false;
                     }
                     return true;
                 });

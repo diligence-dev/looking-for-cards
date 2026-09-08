@@ -66,6 +66,36 @@ func (s *Server) listEntries(w http.ResponseWriter, r *http.Request) {
 		sendJSONError(w, "failed to fetch entries", http.StatusInternalServerError)
 		return
 	}
+	viewer := r.URL.Query().Get("user")
+	if viewer != "" {
+		viewerOccs, err := ListSeekerOccasions(s.db, viewer)
+		if err != nil {
+			log.Printf("ListSeekerOccasions failed for %q: %v", viewer, err)
+		} else if len(viewerOccs) > 0 {
+			viewerSet := map[string]bool{}
+			for _, o := range viewerOccs {
+				viewerSet[o.Name] = true
+			}
+			filtered := []Entry{}
+			for _, e := range entries {
+				if len(e.Occasions) == 0 {
+					filtered = append(filtered, e)
+					continue
+				}
+				intersects := false
+				for _, n := range e.Occasions {
+					if viewerSet[n] {
+						intersects = true
+						break
+					}
+				}
+				if intersects {
+					filtered = append(filtered, e)
+				}
+			}
+			entries = filtered
+		}
+	}
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]any{
 		"entries": entries,
