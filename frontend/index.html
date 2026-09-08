@@ -345,6 +345,11 @@
                 padding-right: 40px;
             }
 
+            .add-section h3 {
+                margin: 16px 0 10px;
+                font-size: 16px;
+            }
+
             .add-section .hint {
                 margin-bottom: 10px;
                 color: #888;
@@ -651,9 +656,10 @@
                     <button class="modal-close" id="seek-close" aria-label="Close">&times;</button>
                     <div class="add-section">
                         <h2>I'm looking for the following cards...</h2>
-                        <div id="add-occasions-picker"></div>
                         <p class="hint">If using CubeCobra: filter 'status:"not owned"', Export, Card Versions (.txt), copy-paste content here</p>
                         <textarea id="card-list" placeholder="One card per line, e.g.&#10;Lightning Bolt&#10;2 Counterspell&#10;Faerie Guidemother (ELD) 11"></textarea>
+                        <h3>I'm going to these occasions...</h3>
+                        <div id="add-occasions-picker"></div>
                         <button id="add-btn">Add cards</button>
                         <div id="add-progress"></div>
                         <div id="add-results"></div>
@@ -1002,7 +1008,7 @@
                 continueBtn.disabled = !nameInput.value.trim();
             });
 
-            // Add-cards modal: an occasion picker sits above the textarea.
+            // Add-cards modal: an occasion picker sits between the textarea and the Add cards button.
             // The seeker must have at least one occasion checked to add cards;
             // occasions are saved to the seeker before the entries are posted.
             let addPickerSelected = new Set();
