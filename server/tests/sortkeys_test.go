@@ -7,6 +7,7 @@ import (
 )
 
 func TestColorSortKey_SingleLetters(t *testing.T) {
+	t.Parallel()
 	cases := map[string]int{
 		"W": 0,
 		"U": 1,
@@ -22,12 +23,14 @@ func TestColorSortKey_SingleLetters(t *testing.T) {
 }
 
 func TestColorSortKey_EmptyIsColorless(t *testing.T) {
+	t.Parallel()
 	if got := server.ColorSortKey(""); got != 5 {
 		t.Errorf("ColorSortKey(\"\") = %d, want 5", got)
 	}
 }
 
 func TestColorSortKey_Multicolor(t *testing.T) {
+	t.Parallel()
 	cases := []string{"WU", "UB", "RGB", "WR", "WUBRG"}
 	for _, colors := range cases {
 		if got := server.ColorSortKey(colors); got != 6 {
@@ -37,12 +40,14 @@ func TestColorSortKey_Multicolor(t *testing.T) {
 }
 
 func TestColorSortKey_UnknownLetterIsColorless(t *testing.T) {
+	t.Parallel()
 	if got := server.ColorSortKey("X"); got != 5 {
 		t.Errorf("ColorSortKey(\"X\") = %d, want 5", got)
 	}
 }
 
 func TestTypeSortKey_SingleTokens(t *testing.T) {
+	t.Parallel()
 	cases := map[string]int{
 		"Planeswalker": 0,
 		"Creature":    1,
@@ -61,12 +66,14 @@ func TestTypeSortKey_SingleTokens(t *testing.T) {
 }
 
 func TestTypeSortKey_Empty(t *testing.T) {
+	t.Parallel()
 	if got := server.TypeSortKey(""); got != 8 {
 		t.Errorf("TypeSortKey(\"\") = %d, want 8", got)
 	}
 }
 
 func TestTypeSortKey_SkipSupertypes(t *testing.T) {
+	t.Parallel()
 	cases := map[string]int{
 		"Legendary Creature": 1,
 		"Basic Land":         6,
@@ -83,6 +90,7 @@ func TestTypeSortKey_SkipSupertypes(t *testing.T) {
 }
 
 func TestTypeSortKey_CreatureWinsOverArtifactAndEnchantment(t *testing.T) {
+	t.Parallel()
 	cases := map[string]int{
 		"Artifact Creature":             1,
 		"Enchantment Creature":          1,
@@ -99,6 +107,7 @@ func TestTypeSortKey_CreatureWinsOverArtifactAndEnchantment(t *testing.T) {
 }
 
 func TestTypeSortKey_NonCreatureFirstMatchWins(t *testing.T) {
+	t.Parallel()
 	cases := map[string]int{
 		"Artifact Land":      2,
 		"Enchantment Land":    3,
@@ -112,6 +121,7 @@ func TestTypeSortKey_NonCreatureFirstMatchWins(t *testing.T) {
 }
 
 func TestTypeSortKey_EmDashParsesLeftSideOnly(t *testing.T) {
+	t.Parallel()
 	cases := map[string]int{
 		"Creature — Goblin":          1,
 		"Legendary Planeswalker — Wrenn": 0,
@@ -126,6 +136,7 @@ func TestTypeSortKey_EmDashParsesLeftSideOnly(t *testing.T) {
 }
 
 func TestTypeSortKey_NoMatchIsEight(t *testing.T) {
+	t.Parallel()
 	if got := server.TypeSortKey("Something Weird"); got != 8 {
 		t.Errorf("TypeSortKey(\"Something Weird\") = %d, want 8", got)
 	}

@@ -34,54 +34,116 @@ type Entry struct {
 
 var ErrEntryNotFound = errors.New("entry not found")
 
+const schemaSQL = `
+	CREATE TABLE IF NOT EXISTS cards (
+		id              INTEGER PRIMARY KEY AUTOINCREMENT,
+		name            TEXT NOT NULL,
+		set_code        TEXT NOT NULL DEFAULT '',
+		collector_number TEXT NOT NULL DEFAULT '',
+		colors          TEXT NOT NULL DEFAULT '',
+		type_line       TEXT NOT NULL DEFAULT '',
+		mana_value      REAL,
+		image_url       TEXT NOT NULL DEFAULT '',
+		color_sort_key  INTEGER NOT NULL DEFAULT 5,
+		type_sort_key   INTEGER NOT NULL DEFAULT 8,
+		created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
+		UNIQUE(name, set_code, collector_number)
+	);
+	CREATE INDEX IF NOT EXISTS idx_cards_sort ON cards(color_sort_key, type_sort_key, mana_value, name);
+
+	CREATE TABLE IF NOT EXISTS entries (
+		id          INTEGER PRIMARY KEY AUTOINCREMENT,
+		card_id     INTEGER NOT NULL REFERENCES cards(id),
+		seeker_name TEXT NOT NULL,
+		giver_name  TEXT,
+		note        TEXT NOT NULL DEFAULT '',
+		created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
+	);
+	CREATE INDEX IF NOT EXISTS idx_entries_seeker ON entries(seeker_name);
+	CREATE INDEX IF NOT EXISTS idx_entries_giver  ON entries(giver_name);
+	CREATE INDEX IF NOT EXISTS idx_entries_card   ON entries(card_id);
+
+	CREATE TABLE IF NOT EXISTS occasions (
+		id              INTEGER PRIMARY KEY AUTOINCREMENT,
+		name            TEXT NOT NULL UNIQUE,
+		date_or_recurring TEXT NOT NULL
+	);
+	CREATE TABLE IF NOT EXISTS seeker_occasions (
+		seeker_name TEXT NOT NULL,
+		occasion_id INTEGER NOT NULL REFERENCES occasions(id),
+		PRIMARY KEY (seeker_name, occasion_id)
+	);
+	CREATE INDEX IF NOT EXISTS idx_seeker_occasions_occasion ON seeker_occasions(occasion_id);
+	CREATE TABLE IF NOT EXISTS schema_meta(key TEXT PRIMARY KEY, value TEXT);
+`
+
+func createSchema(db *sql.DB) error {
+	_, err := db.Exec(schemaSQL)
+	return err
+}
+
+// InitTestDB returns an isolated in-memory database with the current schema
+// and seed data, skipping legacy migration checks. Single connection so all
+// queries see the same memory database.
+func InitTestDB() (*sql.DB, error) {
+	db, err := sql.Open("sqlite3", ":memory:?_busy_timeout=5000")
+	if err != nil {
+		return nil, err
+	}
+	db.SetMaxOpenConns(1)
+	for _, pragma := range []string{
+		`PRAGMA synchronous=OFF`,
+		`PRAGMA journal_mode=MEMORY`,
+		`PRAGMA temp_store=MEMORY`,
+	} {
+		if _, err := db.Exec(pragma); err != nil {
+			db.Close()
+			return nil, err
+		}
+	}
+	if err := createSchema(db); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO occasions (name, date_or_recurring) VALUES ('hedwig', 'recurring')`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO schema_meta(key, value) VALUES('type_sort_key_recompute_v1', 'done')`); err != nil {
+		db.Close()
+		return nil, err
+	}
+	return db, nil
+}
+
+// ResetTestDB clears all rows so a shared test database can be reused.
+func ResetTestDB(db *sql.DB) error {
+	for _, stmt := range []string{
+		`DELETE FROM entries`,
+		`DELETE FROM seeker_occasions`,
+		`DELETE FROM cards`,
+		`DELETE FROM occasions`,
+		`DELETE FROM schema_meta`,
+		`DELETE FROM sqlite_sequence`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			return err
+		}
+	}
+	if _, err := db.Exec(`INSERT OR IGNORE INTO occasions (name, date_or_recurring) VALUES ('hedwig', 'recurring')`); err != nil {
+		return err
+	}
+	_, err := db.Exec(`INSERT OR IGNORE INTO schema_meta(key, value) VALUES('type_sort_key_recompute_v1', 'done')`)
+	return err
+}
+
 func InitDB(path string) (*sql.DB, error) {
 	db, err := sql.Open("sqlite3", path+"?_busy_timeout=5000")
 	if err != nil {
 		return nil, err
 	}
 
-	_, err = db.Exec(`
-		CREATE TABLE IF NOT EXISTS cards (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
-			name            TEXT NOT NULL,
-			set_code        TEXT NOT NULL DEFAULT '',
-			collector_number TEXT NOT NULL DEFAULT '',
-			colors          TEXT NOT NULL DEFAULT '',
-			type_line       TEXT NOT NULL DEFAULT '',
-			mana_value      REAL,
-			image_url       TEXT NOT NULL DEFAULT '',
-			color_sort_key  INTEGER NOT NULL DEFAULT 5,
-			type_sort_key   INTEGER NOT NULL DEFAULT 8,
-			created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
-			UNIQUE(name, set_code, collector_number)
-		);
-		CREATE INDEX IF NOT EXISTS idx_cards_sort ON cards(color_sort_key, type_sort_key, mana_value, name);
-
-		CREATE TABLE IF NOT EXISTS entries (
-			id          INTEGER PRIMARY KEY AUTOINCREMENT,
-			card_id     INTEGER NOT NULL REFERENCES cards(id),
-			seeker_name TEXT NOT NULL,
-			giver_name  TEXT,
-			note        TEXT NOT NULL DEFAULT '',
-			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
-		);
-		CREATE INDEX IF NOT EXISTS idx_entries_seeker ON entries(seeker_name);
-		CREATE INDEX IF NOT EXISTS idx_entries_giver  ON entries(giver_name);
-		CREATE INDEX IF NOT EXISTS idx_entries_card   ON entries(card_id);
-
-		CREATE TABLE IF NOT EXISTS occasions (
-			id              INTEGER PRIMARY KEY AUTOINCREMENT,
-			name            TEXT NOT NULL UNIQUE,
-			date_or_recurring TEXT NOT NULL
-		);
-		CREATE TABLE IF NOT EXISTS seeker_occasions (
-			seeker_name TEXT NOT NULL,
-			occasion_id INTEGER NOT NULL REFERENCES occasions(id),
-			PRIMARY KEY (seeker_name, occasion_id)
-		);
-		CREATE INDEX IF NOT EXISTS idx_seeker_occasions_occasion ON seeker_occasions(occasion_id);
-	`)
-	if err != nil {
+	if err := createSchema(db); err != nil {
 		return nil, err
 	}
 

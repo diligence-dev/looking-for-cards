@@ -6,22 +6,31 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
+	"os"
 	"testing"
 
 	"github.com/diligence-dev/looking-for-cards/server"
 )
 
+var sharedDB *sql.DB
+
+func TestMain(m *testing.M) {
+	db, err := server.InitTestDB()
+	if err != nil {
+		os.Exit(1)
+	}
+	sharedDB = db
+	code := m.Run()
+	db.Close()
+	os.Exit(code)
+}
+
 func openTestDB(t *testing.T) *sql.DB {
 	t.Helper()
-	dir := t.TempDir()
-	dbPath := filepath.Join(dir, "test.db")
-	db, err := server.InitDB(dbPath)
-	if err != nil {
-		t.Fatalf("failed to open test database: %v", err)
+	if err := server.ResetTestDB(sharedDB); err != nil {
+		t.Fatalf("failed to reset test database: %v", err)
 	}
-	t.Cleanup(func() { db.Close() })
-	return db
+	return sharedDB
 }
 
 func newTestServer(t *testing.T) *server.Server {
