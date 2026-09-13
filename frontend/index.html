@@ -218,6 +218,7 @@
 
             .card-tile {
                 background: #16213e;
+                border: 1px solid #2a3450;
                 border-radius: 12px;
                 overflow: hidden;
                 position: relative;
@@ -339,6 +340,23 @@
                 background: #3a4470;
             }
 
+            .card-tile .note {
+                display: block;
+                width: fit-content;
+                max-width: calc(100% - 12px);
+                margin: 6px auto;
+                align-self: center;
+                font-size: 12px;
+                font-weight: 700;
+                color: white;
+                background: #e94560;
+                padding: 4px 12px;
+                border-radius: 999px;
+                text-align: center;
+                line-height: 1.2;
+                overflow-wrap: anywhere;
+            }
+
             /* Add section (inside modal) */
             .add-section h2 {
                 margin-bottom: 10px;
@@ -372,6 +390,30 @@
             .add-section textarea:focus {
                 outline: none;
                 border-color: #e94560;
+            }
+
+            .add-section #card-note {
+                width: 100%;
+                margin-top: 10px;
+                padding: 10px 12px;
+                font-size: 14px;
+                font-family: inherit;
+                border: 2px solid #333;
+                border-radius: 8px;
+                background: #16213e;
+                color: #eee;
+            }
+
+            .add-section #card-note:focus {
+                outline: none;
+                border-color: #e94560;
+            }
+
+            #note-counter {
+                margin-top: 4px;
+                font-size: 12px;
+                color: #888;
+                text-align: right;
             }
 
             .add-section button {
@@ -658,6 +700,8 @@
                         <h2>I'm looking for the following cards...</h2>
                         <p class="hint">If using CubeCobra: filter 'status:"not owned"', Export, Card Versions (.txt), copy-paste content here</p>
                         <textarea id="card-list" placeholder="One card per line, e.g.&#10;Lightning Bolt&#10;2 Counterspell&#10;Faerie Guidemother (ELD) 11"></textarea>
+                        <input id="card-note" type="text" placeholder="Note for these cards (optional, max 50 characters) e.g. English, M15 frame" maxlength="50" />
+                        <div id="note-counter">0/50</div>
                         <h3>I'm going to these occasions...</h3>
                         <div id="add-occasions-picker"></div>
                         <button id="add-btn">Add cards</button>
@@ -709,6 +753,8 @@
             const hideGiver = $("hide-giver");
             const grid = $("grid");
             const cardList = $("card-list");
+            const cardNote = $("card-note");
+            const noteCounter = $("note-counter");
             const addBtn = $("add-btn");
             const addProgress = $("add-progress");
             const addResults = $("add-results");
@@ -1015,10 +1061,26 @@
             function updateAddBtn() {
                 addBtn.disabled = !(addPickerSelected.size > 0 && cardList.value.trim());
             }
+            // Notes are limited to 50 runes server-side (Go []rune). JS
+            // string.length counts UTF-16 units, so emoji would be
+            // over-counted. Count code points instead to match the server.
+            function runeLen(s) {
+                return [...s].length;
+            }
+            function truncateRunes(s, n) {
+                return [...s].slice(0, n).join("");
+            }
+            function updateNoteCounter() {
+                if (runeLen(cardNote.value) > 50) {
+                    cardNote.value = truncateRunes(cardNote.value, 50);
+                }
+                noteCounter.textContent = runeLen(cardNote.value) + "/50";
+            }
             seekBtn.onclick = () => {
                 addPickerSelected = new Set(myOccasionIDs);
                 renderOccasionPicker($("add-occasions-picker"), addPickerSelected, { allowCreate: true }, updateAddBtn);
                 updateAddBtn();
+                updateNoteCounter();
                 seekModal.classList.remove("hidden");
                 cardList.focus();
             };
@@ -1035,6 +1097,13 @@
             }
             cardFilter.addEventListener("input", applyFiltersAndRender);
             cardList.addEventListener("input", updateAddBtn);
+            cardNote.addEventListener("input", updateNoteCounter);
+            cardNote.addEventListener("keydown", (e) => {
+                if (e.key === "Enter" && !addBtn.disabled) {
+                    e.preventDefault();
+                    addCards();
+                }
+            });
             colorFilter.addEventListener("change", applyFiltersAndRender);
             typeFilter.addEventListener("change", applyFiltersAndRender);
             hideGiver.addEventListener("change", applyFiltersAndRender);
@@ -1441,6 +1510,7 @@
                         <img src="${escapeHtml(e.card.image_url || imageURL(e.card.name, e.card.set))}" loading="lazy" alt="${escapeHtml(e.card.name)}" ${imgAction} onerror="imgFallback(this)" />
                         ${claimed ? "<div class='claimed-badge'>claimed</div>" : ""}
                     </div>
+                    ${e.note ? `<div class="note">${escapeHtml(e.note)}</div>` : ""}
                     <div class='info${e.giver ? " has-giver" : ""}'>
                         <div class='info-text'>
                             <div class='seeker'>seeker: ${escapeHtml(e.seeker)}</div>
@@ -1611,6 +1681,7 @@
                     for (const [k, v] of part) meta.set(k, v);
                 }
 
+                const batchNote = truncateRunes(cardNote.value.trim(), 50);
                 const cards = [];
                 const cardSources = [];
                 for (const u of units) {
@@ -1619,7 +1690,7 @@
                         failedLines.add(u.sourceLine);
                         lineErrors.push({ line: u.sourceLine, name: u.name, error: m.error });
                     } else if (m) {
-                        cards.push({ name: u.name, set: u.set, collector_number: u.collector_number, colors: m.colors, type_line: m.type_line, mana_value: m.mana_value, image_url: m.image_url });
+                        cards.push({ name: u.name, set: u.set, collector_number: u.collector_number, colors: m.colors, type_line: m.type_line, mana_value: m.mana_value, image_url: m.image_url, note: batchNote });
                         cardSources.push(u.sourceLine);
                     }
                 }
@@ -1667,6 +1738,8 @@
                     cardList.value = rawLines.filter((_, i) => failedLines.has(i)).join("\n");
                 } else {
                     cardList.value = "";
+                    cardNote.value = "";
+                    noteCounter.textContent = "0/50";
                 }
 
                 loadEntries();

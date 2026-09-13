@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"log"
+	"strings"
 
 	_ "github.com/mattn/go-sqlite3"
 )
@@ -27,6 +28,7 @@ type Entry struct {
 	SeekerName string   `json:"seeker"`
 	GiverName  string   `json:"giver"`
 	Occasions  []string `json:"occasions"`
+	Note       string   `json:"note"`
 	CreatedAt  string   `json:"created_at"`
 }
 
@@ -60,6 +62,7 @@ func InitDB(path string) (*sql.DB, error) {
 			card_id     INTEGER NOT NULL REFERENCES cards(id),
 			seeker_name TEXT NOT NULL,
 			giver_name  TEXT,
+			note        TEXT NOT NULL DEFAULT '',
 			created_at  DATETIME DEFAULT CURRENT_TIMESTAMP
 		);
 		CREATE INDEX IF NOT EXISTS idx_entries_seeker ON entries(seeker_name);
@@ -84,6 +87,8 @@ func InitDB(path string) (*sql.DB, error) {
 
 	migrateSeedHedwig(db)
 
+	migrateAddEntryNote(db)
+
 	migrateAddImageURL(db)
 	migrateAddCollectorNumber(db)
 	migrateAddManaValue(db)
@@ -91,6 +96,15 @@ func InitDB(path string) (*sql.DB, error) {
 	migrateRecomputeTypeSortKey(db)
 
 	return db, nil
+}
+
+func migrateAddEntryNote(db *sql.DB) {
+	row := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('entries') WHERE name='note'")
+	var count int
+	if err := row.Scan(&count); err != nil || count > 0 {
+		return
+	}
+	db.Exec(`ALTER TABLE entries ADD COLUMN note TEXT NOT NULL DEFAULT ''`)
 }
 
 func migrateAddImageURL(db *sql.DB) {
@@ -306,8 +320,22 @@ func UpdateCardMetadata(db *sql.DB, cards []Card) error {
 	return tx.Commit()
 }
 
+func truncateNote(s string) string {
+	s = strings.TrimSpace(s)
+	runes := []rune(s)
+	if len(runes) > 50 {
+		runes = runes[:50]
+	}
+	return string(runes)
+}
+
 func AddEntry(db *sql.DB, cardID int, seeker string) (int64, error) {
-	res, err := db.Exec(`INSERT INTO entries (card_id, seeker_name) VALUES (?, ?)`, cardID, seeker)
+	return AddEntryWithNote(db, cardID, seeker, "")
+}
+
+func AddEntryWithNote(db *sql.DB, cardID int, seeker, note string) (int64, error) {
+	note = truncateNote(note)
+	res, err := db.Exec(`INSERT INTO entries (card_id, seeker_name, note) VALUES (?, ?, ?)`, cardID, seeker, note)
 	if err != nil {
 		return 0, err
 	}
@@ -315,7 +343,7 @@ func AddEntry(db *sql.DB, cardID int, seeker string) (int64, error) {
 }
 
 const entrySelectCols = `
-	entries.id, entries.seeker_name, entries.giver_name, entries.created_at,
+	entries.id, entries.seeker_name, entries.giver_name, entries.note, entries.created_at,
 	cards.id, cards.name, cards.set_code, cards.collector_number, cards.colors, cards.type_line,
 	cards.mana_value, cards.image_url, cards.color_sort_key, cards.type_sort_key
 `
@@ -324,7 +352,7 @@ func scanEntry(scanner interface{ Scan(...interface{}) error }, e *Entry) error 
 	var giver sql.NullString
 	var mv sql.NullFloat64
 	err := scanner.Scan(
-		&e.ID, &e.SeekerName, &giver, &e.CreatedAt,
+		&e.ID, &e.SeekerName, &giver, &e.Note, &e.CreatedAt,
 		&e.Card.ID, &e.Card.Name, &e.Card.SetCode, &e.Card.CollectorNumber, &e.Card.Colors, &e.Card.TypeLine,
 		&mv, &e.Card.ImageURL, &e.Card.ColorSortKey, &e.Card.TypeSortKey,
 	)

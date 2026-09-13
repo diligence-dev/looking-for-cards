@@ -26,6 +26,7 @@ type addCard struct {
 	TypeLine        string  `json:"type_line"`
 	ManaValue       float64 `json:"mana_value"`
 	ImageURL        string  `json:"image_url"`
+	Note            string  `json:"note"`
 }
 
 type addRequest struct {
@@ -129,7 +130,7 @@ func (s *Server) addEntries(w http.ResponseWriter, r *http.Request) {
 			errs = append(errs, addError{Line: i, Name: c.Name, Error: "database error"})
 			continue
 		}
-		if _, err := AddEntry(s.db, cardID, user); err != nil {
+		if _, err := AddEntryWithNote(s.db, cardID, user, c.Note); err != nil {
 			log.Printf("AddEntry failed for %q: %v", c.Name, err)
 			errs = append(errs, addError{Line: i, Name: c.Name, Error: "database error"})
 			continue
