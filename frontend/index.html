@@ -205,6 +205,61 @@
                 cursor: pointer;
             }
 
+            /* Sort control (far right, arrow reorder) */
+            #sort-control .ms-panel {
+                left: auto;
+                right: 0;
+                min-width: 220px;
+            }
+
+            .sort-list {
+                list-style: none;
+                display: flex;
+                flex-direction: column;
+                gap: 4px;
+            }
+
+            .sort-item {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                padding: 4px 6px;
+                border: 1px solid #333;
+                border-radius: 6px;
+                background: #1a1a2e;
+                font-size: 13px;
+                white-space: nowrap;
+            }
+
+            .sort-item span.sort-label {
+                flex: 1;
+            }
+
+            .sort-item button.sort-move {
+                flex: none;
+                width: 28px;
+                height: 28px;
+                padding: 0;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: #2a3450;
+                color: #eee;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+
+            .sort-item button.sort-move:hover:not(:disabled) {
+                background: #3a4470;
+            }
+
+            .sort-item button.sort-move:disabled {
+                opacity: 0.35;
+                cursor: default;
+            }
+
             /* Grid */
             .card-grid {
                 --card-min: 200px;
@@ -692,6 +747,10 @@
                     <div class="ms-panel hidden"></div>
                 </div>
                 <label><input id="hide-giver" type="checkbox" /> Hide giver found</label>
+                <div class="multiselect" id="sort-control">
+                    <button class="ms-trigger" type="button">sort</button>
+                    <div class="ms-panel hidden"></div>
+                </div>
             </div>
             <div id="grid" class="card-grid"></div>
 
@@ -772,6 +831,7 @@
             const occasionsClose = $("occasions-close");
             const myOccasionsSave = $("my-occasions-save");
             const occasionFilter = $("occasion-filter");
+            const sortControl = $("sort-control");
 
             function escapeHtml(s) {
                 return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -1458,6 +1518,109 @@
                 return first;
             }
 
+            // Sort control: far-right dropdown listing the 5 sort criteria in
+            // priority order (first = primary). Arrow buttons move a criterion
+            // up/down; all directions are fixed ascending. Client-side only —
+            // the server order stays the default. Preference persists per
+            // device in localStorage.
+            const SORT_KEYS = ["color", "type", "mana", "name", "added"];
+            const SORT_LABELS = { color: "Color", type: "Type", mana: "Mana value", name: "Name", added: "Seeking since" };
+            const SORT_DEFAULT = ["color", "type", "mana", "name", "added"];
+            const SORT_KEY = "sortOrder";
+
+            let sortOrder = [...SORT_DEFAULT];
+            try {
+                const raw = localStorage.getItem(SORT_KEY);
+                if (raw) {
+                    const parsed = JSON.parse(raw);
+                    if (Array.isArray(parsed) && parsed.length === SORT_KEYS.length && SORT_KEYS.every((k) => parsed.includes(k)) && new Set(parsed).size === SORT_KEYS.length) {
+                        sortOrder = parsed;
+                    }
+                }
+            } catch (e) {}
+
+            function persistSortOrder() {
+                try { localStorage.setItem(SORT_KEY, JSON.stringify(sortOrder)); } catch (e) {}
+            }
+
+            // Mirrors server ColorSortKey: ""->5, W0 U1 B2 R3 G4, other single->5, multi->6.
+            function colorOrder(colors) {
+                if (!colors) return 5;
+                if (colors.length > 1) return 6;
+                switch (colors) {
+                    case "W": return 0;
+                    case "U": return 1;
+                    case "B": return 2;
+                    case "R": return 3;
+                    case "G": return 4;
+                    default: return 5;
+                }
+            }
+
+            function manaOrder(v) {
+                return v == null ? -1 : v;
+            }
+
+            function addedCompare(a, b) {
+                if (a.created_at < b.created_at) return -1;
+                if (a.created_at > b.created_at) return 1;
+                return a.id - b.id;
+            }
+
+            const SORT_CMPS = {
+                color: (a, b) => colorOrder(a.card.colors) - colorOrder(b.card.colors),
+                type: (a, b) => typeGroup(a.card.type_line) - typeGroup(b.card.type_line),
+                mana: (a, b) => manaOrder(a.card.mana_value) - manaOrder(b.card.mana_value),
+                name: (a, b) => a.card.name.localeCompare(b.card.name),
+                added: addedCompare,
+            };
+
+            function compareBySortOrder(a, b) {
+                for (const key of sortOrder) {
+                    const cmp = SORT_CMPS[key](a, b);
+                    if (cmp !== 0) return cmp;
+                }
+                return 0;
+            }
+
+            function renderSortPanel() {
+                const panel = sortControl.querySelector(".ms-panel");
+                panel.innerHTML = `<ul class="sort-list">${sortOrder.map((key, i) => `<li class="sort-item"><span class="sort-label">${SORT_LABELS[key]}</span><button type="button" class="sort-move" data-move="up" data-idx="${i}" ${i === 0 ? "disabled" : ""} aria-label="Move ${SORT_LABELS[key]} up">▲</button><button type="button" class="sort-move" data-move="down" data-idx="${i}" ${i === sortOrder.length - 1 ? "disabled" : ""} aria-label="Move ${SORT_LABELS[key]} down">▼</button></li>`).join("")}</ul>`;
+                panel.querySelectorAll("button.sort-move").forEach((btn) => {
+                    btn.addEventListener("click", (e) => {
+                        e.stopPropagation();
+                        const idx = parseInt(btn.dataset.idx, 10);
+                        const dir = btn.dataset.move === "up" ? -1 : 1;
+                        const j = idx + dir;
+                        if (j < 0 || j >= sortOrder.length) return;
+                        const tmp = sortOrder[idx];
+                        sortOrder[idx] = sortOrder[j];
+                        sortOrder[j] = tmp;
+                        persistSortOrder();
+                        renderSortPanel();
+                        applyFiltersAndRender();
+                    });
+                });
+            }
+
+            function setupSortControl() {
+                const trigger = sortControl.querySelector(".ms-trigger");
+                const panel = sortControl.querySelector(".ms-panel");
+                trigger.addEventListener("click", (e) => {
+                    e.stopPropagation();
+                    const willOpen = panel.classList.contains("hidden");
+                    closeAllPanels();
+                    if (willOpen) {
+                        renderSortPanel();
+                        panel.classList.remove("hidden");
+                        trigger.classList.add("open");
+                    }
+                });
+                panel.addEventListener("click", (e) => e.stopPropagation());
+            }
+
+            setupSortControl();
+
             function applyFiltersAndRender() {
                 const cardF = cardFilter.value.trim().toLowerCase();
                 const colorF = colorFilter.value;
@@ -1484,6 +1647,7 @@
                     }
                     return true;
                 });
+                filtered.sort(compareBySortOrder);
                 render(filtered);
             }
 
