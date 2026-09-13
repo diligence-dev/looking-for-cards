@@ -240,6 +240,9 @@
                 width: 100%;
                 height: auto;
                 display: block;
+                /* Scryfall JPGs bake white outside the card corner: mask with card-like radius. */
+                border-radius: 5%;
+                background: #0f1629;
             }
 
             .card-tile.clickable .img-wrap {
