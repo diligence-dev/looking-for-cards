@@ -271,6 +271,10 @@
                 touch-action: pan-y;
             }
 
+            .card-grid.fixed-cols {
+                grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+            }
+
             .card-tile {
                 background: #16213e;
                 border: 1px solid #2a3450;
@@ -747,6 +751,20 @@
                     <div class="ms-panel hidden"></div>
                 </div>
                 <label><input id="hide-giver" type="checkbox" /> Hide giver found</label>
+                <select id="cards-per-row">
+                    <option value="auto">auto</option>
+                    <option value="2">2 per row</option>
+                    <option value="3">3 per row</option>
+                    <option value="4">4 per row</option>
+                    <option value="5">5 per row</option>
+                    <option value="6">6 per row</option>
+                    <option value="7">7 per row</option>
+                    <option value="8">8 per row</option>
+                    <option value="9">9 per row</option>
+                    <option value="10">10 per row</option>
+                    <option value="11">11 per row</option>
+                    <option value="12">12 per row</option>
+                </select>
                 <div class="multiselect" id="sort-control">
                     <button class="ms-trigger" type="button">sort</button>
                     <div class="ms-panel hidden"></div>
@@ -832,6 +850,7 @@
             const myOccasionsSave = $("my-occasions-save");
             const occasionFilter = $("occasion-filter");
             const sortControl = $("sort-control");
+            const cardsPerRowSel = $("cards-per-row");
 
             function escapeHtml(s) {
                 return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -849,13 +868,27 @@
                 toastTimer = setTimeout(() => toastEl.classList.add("hidden"), 3000);
             }
 
-            // Pinch-to-zoom on the grid controls card size (not page zoom):
-            // pinch out → bigger cards (zoom in), pinch in → smaller cards (zoom out)
-            // so more cards fit per row. Preference persists in localStorage.
+            // Cards-per-row + pinch-to-zoom share one state: cardsPerRow is
+            // "auto" (auto-fill by --card-min, the pre-existing pinch behavior)
+            // or an integer 2..12 (fixed column count). Both persist.
+            const CARDS_PER_ROW_KEY = "cardsPerRow";
+            const CARDS_PER_ROW_MIN = 2;
+            const CARDS_PER_ROW_MAX = 12;
+            const CARDS_PER_ROW_AUTO = "auto";
+
             const CARD_MIN_DEFAULT = 200;
             const CARD_MIN_MIN = 80;
             const CARD_MIN_MAX = 400;
             const CARD_MIN_KEY = "cardMin";
+
+            let cardsPerRow = CARDS_PER_ROW_AUTO;
+            try {
+                const raw = localStorage.getItem(CARDS_PER_ROW_KEY);
+                if (raw !== null && raw !== CARDS_PER_ROW_AUTO) {
+                    const n = parseInt(raw, 10);
+                    if (!isNaN(n) && n >= CARDS_PER_ROW_MIN && n <= CARDS_PER_ROW_MAX) cardsPerRow = n;
+                }
+            } catch (e) {}
 
             let cardMin = CARD_MIN_DEFAULT;
             try {
@@ -863,12 +896,23 @@
                 if (!isNaN(saved) && saved > 0) cardMin = Math.min(CARD_MIN_MAX, Math.max(CARD_MIN_MIN, saved));
             } catch (e) {}
 
-            function applyCardMin() {
-                grid.style.setProperty("--card-min", cardMin + "px");
+            function persistCardsPerRow() {
+                try { localStorage.setItem(CARDS_PER_ROW_KEY, String(cardsPerRow)); } catch (e) {}
+            }
+
+            function applyGridSizing() {
+                if (cardsPerRow === CARDS_PER_ROW_AUTO) {
+                    grid.classList.remove("fixed-cols");
+                    grid.style.setProperty("--card-min", cardMin + "px");
+                } else {
+                    grid.classList.add("fixed-cols");
+                    grid.style.setProperty("--cols", String(cardsPerRow));
+                }
             }
 
             let pinchStartDist = 0;
             let pinchStartCardMin = 0;
+            let pinchStartCardsPerRow = 0;
 
             function touchDist(t1, t2) {
                 return Math.hypot(t1.clientX - t2.clientX, t1.clientY - t2.clientY);
@@ -877,13 +921,17 @@
             function pinchEnd() {
                 if (!pinchStartDist) return;
                 pinchStartDist = 0;
-                try { localStorage.setItem(CARD_MIN_KEY, String(cardMin)); } catch (e) {}
+                try {
+                    if (cardsPerRow === CARDS_PER_ROW_AUTO) localStorage.setItem(CARD_MIN_KEY, String(cardMin));
+                    else persistCardsPerRow();
+                } catch (e) {}
             }
 
             grid.addEventListener("touchstart", (e) => {
                 if (e.touches.length === 2) {
                     pinchStartDist = touchDist(e.touches[0], e.touches[1]);
                     pinchStartCardMin = cardMin;
+                    pinchStartCardsPerRow = cardsPerRow === CARDS_PER_ROW_AUTO ? 0 : cardsPerRow;
                 }
             });
 
@@ -891,14 +939,28 @@
                 if (e.touches.length !== 2 || !pinchStartDist) return;
                 e.preventDefault();
                 const dist = touchDist(e.touches[0], e.touches[1]);
-                cardMin = Math.min(CARD_MIN_MAX, Math.max(CARD_MIN_MIN, (pinchStartCardMin * dist) / pinchStartDist));
-                applyCardMin();
+                if (cardsPerRow === CARDS_PER_ROW_AUTO) {
+                    cardMin = Math.min(CARD_MIN_MAX, Math.max(CARD_MIN_MIN, (pinchStartCardMin * dist) / pinchStartDist));
+                } else {
+                    const n = Math.min(CARDS_PER_ROW_MAX, Math.max(CARDS_PER_ROW_MIN, Math.round((pinchStartCardsPerRow * pinchStartDist) / dist)));
+                    cardsPerRow = n;
+                    cardsPerRowSel.value = String(n);
+                }
+                applyGridSizing();
             }, { passive: false });
 
             grid.addEventListener("touchend", pinchEnd);
             grid.addEventListener("touchcancel", pinchEnd);
 
-            applyCardMin();
+            cardsPerRowSel.value = String(cardsPerRow);
+            cardsPerRowSel.addEventListener("change", () => {
+                const v = cardsPerRowSel.value;
+                cardsPerRow = v === CARDS_PER_ROW_AUTO ? CARDS_PER_ROW_AUTO : parseInt(v, 10);
+                persistCardsPerRow();
+                applyGridSizing();
+            });
+
+            applyGridSizing();
 
             // Scryfall rate-limits /cards/collection (metadata) to 2/sec (500ms).
             // /cards/collection returns image_uris.normal — a direct cards.scryfall.io
