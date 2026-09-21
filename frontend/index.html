@@ -139,6 +139,10 @@
                 font-size: 13px;
             }
 
+            #menu-toggle {
+                display: none;
+            }
+
             /* Multiselect (giver / seeker name filters) */
             .multiselect {
                 position: relative;
@@ -677,6 +681,14 @@
             }
 
             @media (max-width: 768px) {
+                #menu-toggle {
+                    display: block;
+                }
+
+                .topbar:not(.expanded) > *:not(#menu-toggle) {
+                    display: none;
+                }
+
                 .topbar {
                     flex-direction: column;
                     align-items: stretch;
@@ -713,6 +725,7 @@
 
         <div id="screen-b" class="screen hidden">
             <div class="topbar">
+                <button id="menu-toggle" type="button">☰ menu</button>
                 <button id="seek-btn">I'm seeking...</button>
                 <button id="my-occasions-btn">My occasions</button>
                 <div class="multiselect" id="occasion-filter">
@@ -1295,6 +1308,17 @@
             const seekerMS = setupMultiselect(seekerFilter, seekerSelected, "all seekers", "seekers");
 
             document.addEventListener("click", closeAllPanels);
+
+            const menuToggle = document.getElementById("menu-toggle");
+            const topbar = document.querySelector(".topbar");
+            menuToggle.addEventListener("click", () => {
+                if (topbar.classList.contains("expanded")) {
+                    topbar.classList.remove("expanded");
+                    closeAllPanels();
+                } else {
+                    topbar.classList.add("expanded");
+                }
+            });
 
             // Occasions: tied to seekers (not entries); entries inherit their
             // seeker's occasions. Filtered client-side by occasion name, synced
