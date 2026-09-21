@@ -765,7 +765,7 @@
                 </div>
                 <label><input id="hide-giver" type="checkbox" /> Hide giver found</label>
                 <select id="cards-per-row">
-                    <option value="auto">auto</option>
+                    <option value="auto" id="auto-option">auto</option>
                     <option value="2">2 per row</option>
                     <option value="3">3 per row</option>
                     <option value="4">4 per row</option>
@@ -864,6 +864,7 @@
             const occasionFilter = $("occasion-filter");
             const sortControl = $("sort-control");
             const cardsPerRowSel = $("cards-per-row");
+            const autoOption = $("auto-option");
 
             function escapeHtml(s) {
                 return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -913,15 +914,30 @@
                 try { localStorage.setItem(CARDS_PER_ROW_KEY, String(cardsPerRow)); } catch (e) {}
             }
 
+            // "auto" fills rows via repeat(auto-fill, minmax(--card-min, 1fr));
+            // report the resulting column count in the dropdown label.
+            function updateAutoLabel() {
+                if (cardsPerRow !== CARDS_PER_ROW_AUTO || !grid.offsetWidth) {
+                    autoOption.textContent = "auto";
+                    return;
+                }
+                const n = Math.max(1, Math.floor((grid.offsetWidth + 2) / (cardMin + 2)));
+                autoOption.textContent = `auto (${n} per row)`;
+            }
+
             function applyGridSizing() {
-                if (cardsPerRow === CARDS_PER_ROW_AUTO) {
+                const wasAuto = cardsPerRow === CARDS_PER_ROW_AUTO;
+                if (wasAuto) {
                     grid.classList.remove("fixed-cols");
                     grid.style.setProperty("--card-min", cardMin + "px");
                 } else {
                     grid.classList.add("fixed-cols");
                     grid.style.setProperty("--cols", String(cardsPerRow));
                 }
+                updateAutoLabel();
             }
+
+            window.addEventListener("resize", updateAutoLabel);
 
             let pinchStartDist = 0;
             let pinchStartCardMin = 0;
@@ -1741,6 +1757,7 @@
                 entriesById = {};
                 for (const e of entries) entriesById[e.id] = e;
                 grid.innerHTML = entries.map(tileHTML).join("");
+                updateAutoLabel();
             }
 
             function tileHTML(e) {
