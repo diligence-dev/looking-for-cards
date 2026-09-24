@@ -255,3 +255,29 @@ func (s *Server) handleCardMetadata(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
+
+func (s *Server) handleCardSetCodes(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		sendJSONError(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var req struct {
+		Cards []Card `json:"cards"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		sendJSONError(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	for _, c := range req.Cards {
+		if c.Name == "" {
+			sendJSONError(w, "empty name", http.StatusBadRequest)
+			return
+		}
+	}
+	if err := UpdateCardSetCodes(s.db, req.Cards); err != nil {
+		log.Printf("UpdateCardSetCodes failed: %v", err)
+		sendJSONError(w, "failed to update card set codes", http.StatusInternalServerError)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

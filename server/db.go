@@ -18,8 +18,11 @@ type Card struct {
 	TypeLine        string   `json:"type_line"`
 	ManaValue       *float64 `json:"mana_value"`
 	ImageURL        string   `json:"image_url"`
-	ColorSortKey    int      `json:"-"`
-	TypeSortKey     int      `json:"-"`
+	// SetCodes lists every set code this card name was ever printed in,
+	// comma-separated and sorted; empty until backfilled from Scryfall.
+	SetCodes     string `json:"set_codes"`
+	ColorSortKey int    `json:"-"`
+	TypeSortKey  int    `json:"-"`
 }
 
 type Entry struct {
@@ -44,6 +47,7 @@ const schemaSQL = `
 		type_line       TEXT NOT NULL DEFAULT '',
 		mana_value      REAL,
 		image_url       TEXT NOT NULL DEFAULT '',
+		set_codes       TEXT NOT NULL DEFAULT '',
 		color_sort_key  INTEGER NOT NULL DEFAULT 5,
 		type_sort_key   INTEGER NOT NULL DEFAULT 8,
 		created_at      DATETIME DEFAULT CURRENT_TIMESTAMP,
@@ -152,6 +156,7 @@ func InitDB(path string) (*sql.DB, error) {
 	migrateAddEntryNote(db)
 
 	migrateAddImageURL(db)
+	migrateAddSetCodes(db)
 	migrateAddCollectorNumber(db)
 	migrateAddManaValue(db)
 	migrateManaValueNullable(db)
@@ -176,6 +181,18 @@ func migrateAddImageURL(db *sql.DB) {
 		return
 	}
 	db.Exec(`ALTER TABLE cards ADD COLUMN image_url TEXT NOT NULL DEFAULT ''`)
+}
+
+// migrateAddSetCodes adds the set_codes column (all set codes the card was
+// printed in); the values themselves are backfilled by the browser from
+// Scryfall and persisted via POST /api/cards/setcodes.
+func migrateAddSetCodes(db *sql.DB) {
+	row := db.QueryRow("SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name='set_codes'")
+	var count int
+	if err := row.Scan(&count); err != nil || count > 0 {
+		return
+	}
+	db.Exec(`ALTER TABLE cards ADD COLUMN set_codes TEXT NOT NULL DEFAULT ''`)
 }
 
 func migrateAddCollectorNumber(db *sql.DB) {
@@ -382,6 +399,23 @@ func UpdateCardMetadata(db *sql.DB, cards []Card) error {
 	return tx.Commit()
 }
 
+// UpdateCardSetCodes stores the printing set codes for each card name. All
+// rows sharing a name get the same value, since printings depend only on the
+// card name.
+func UpdateCardSetCodes(db *sql.DB, cards []Card) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	for _, c := range cards {
+		if _, err := tx.Exec(`UPDATE cards SET set_codes=? WHERE name=?`, c.SetCodes, c.Name); err != nil {
+			tx.Rollback()
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
 func truncateNote(s string) string {
 	s = strings.TrimSpace(s)
 	runes := []rune(s)
@@ -407,7 +441,7 @@ func AddEntryWithNote(db *sql.DB, cardID int, seeker, note string) (int64, error
 const entrySelectCols = `
 	entries.id, entries.seeker_name, entries.giver_name, entries.note, entries.created_at,
 	cards.id, cards.name, cards.set_code, cards.collector_number, cards.colors, cards.type_line,
-	cards.mana_value, cards.image_url, cards.color_sort_key, cards.type_sort_key
+	cards.mana_value, cards.image_url, cards.set_codes, cards.color_sort_key, cards.type_sort_key
 `
 
 func scanEntry(scanner interface{ Scan(...interface{}) error }, e *Entry) error {
@@ -416,7 +450,7 @@ func scanEntry(scanner interface{ Scan(...interface{}) error }, e *Entry) error 
 	err := scanner.Scan(
 		&e.ID, &e.SeekerName, &giver, &e.Note, &e.CreatedAt,
 		&e.Card.ID, &e.Card.Name, &e.Card.SetCode, &e.Card.CollectorNumber, &e.Card.Colors, &e.Card.TypeLine,
-		&mv, &e.Card.ImageURL, &e.Card.ColorSortKey, &e.Card.TypeSortKey,
+		&mv, &e.Card.ImageURL, &e.Card.SetCodes, &e.Card.ColorSortKey, &e.Card.TypeSortKey,
 	)
 	if err != nil {
 		return err

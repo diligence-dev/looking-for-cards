@@ -656,3 +656,82 @@ func TestCardImageURLs_BackfillByCollectorNumber(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrate_AddSetCodes(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "test.db")
+	db, err := server.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB: %v", err)
+	}
+	db.Close()
+
+	db, err = sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if _, err := db.Exec(`ALTER TABLE cards DROP COLUMN set_codes`); err != nil {
+		t.Fatalf("drop set_codes: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO cards (name, collector_number, colors, type_line, color_sort_key, type_sort_key) VALUES ('Bolt','','R','Instant',3,4)`); err != nil {
+		t.Fatalf("insert legacy card: %v", err)
+	}
+	db.Close()
+
+	db2, err := server.InitDB(dbPath)
+	if err != nil {
+		t.Fatalf("InitDB again: %v", err)
+	}
+	defer db2.Close()
+
+	var count int
+	if err := db2.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('cards') WHERE name='set_codes'`).Scan(&count); err != nil {
+		t.Fatalf("pragma: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected set_codes column after migration, found %d", count)
+	}
+	var sc string
+	if err := db2.QueryRow(`SELECT set_codes FROM cards WHERE name='Bolt'`).Scan(&sc); err != nil {
+		t.Fatalf("read set_codes: %v", err)
+	}
+	if sc != "" {
+		t.Fatalf("expected empty set_codes for legacy card, got %q", sc)
+	}
+}
+
+func TestCardSetCodes_UpdatesAllRowsByName(t *testing.T) {
+	srv := newTestServer(t)
+	cards := []map[string]any{
+		{"name": "Bolt", "set": "LEA", "colors": "R", "type_line": "Instant"},
+		{"name": "Bolt", "set": "M11", "colors": "R", "type_line": "Instant"},
+		{"name": "Counterspell", "set": "", "colors": "UU", "type_line": "Instant"},
+	}
+	res := postCards(t, srv, "alice", cards)
+	if res.Status != http.StatusCreated {
+		t.Fatalf("expected 201, got %d: %s", res.Status, res.Body)
+	}
+
+	backfillRes := doRequest(t, srv, http.MethodPost, "/api/cards/setcodes", map[string]any{
+		"cards": []map[string]any{
+			{"name": "Bolt", "set_codes": "LEA,M11,M10"},
+		},
+	})
+	if backfillRes.Status != http.StatusNoContent {
+		t.Fatalf("expected 204, got %d: %s", backfillRes.Status, backfillRes.Body)
+	}
+
+	listRes := doRequest(t, srv, http.MethodGet, "/api/entries", nil)
+	entries := decodeEntries(t, listRes.Body)
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries, got %d", len(entries))
+	}
+	for _, e := range entries {
+		if e.Card.Name == "Bolt" && e.Card.SetCodes != "LEA,M11,M10" {
+			t.Fatalf("expected Bolt set_codes=LEA,M11,M10, got %q", e.Card.SetCodes)
+		}
+		if e.Card.Name == "Counterspell" && e.Card.SetCodes != "" {
+			t.Fatalf("expected Counterspell set_codes empty, got %q", e.Card.SetCodes)
+		}
+	}
+}

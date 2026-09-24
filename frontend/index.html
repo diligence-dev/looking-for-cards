@@ -126,6 +126,11 @@
                 min-width: 140px;
             }
 
+            /* Set codes are short (3 chars); size attr fits "set code". */
+            #set-filter {
+                min-width: 0;
+            }
+
             .topbar input[type="search"]:focus {
                 outline: none;
                 border-color: #e94560;
@@ -733,6 +738,7 @@
                     <div class="ms-panel hidden"></div>
                 </div>
                 <input id="card-filter" type="search" placeholder="card name" />
+                <input id="set-filter" type="search" placeholder="set code" size="9" />
                 <select id="color-filter">
                     <option value="">all colors</option>
                     <option value="W">White</option>
@@ -839,6 +845,7 @@
             const nameInput = $("name-input");
             const continueBtn = $("continue-btn");
             const cardFilter = $("card-filter");
+            const setFilter = $("set-filter");
             const colorFilter = $("color-filter");
             const typeFilter = $("type-filter");
             const giverFilter = $("giver-filter");
@@ -1250,6 +1257,7 @@
                 seekModal.classList.add("hidden");
             }
             cardFilter.addEventListener("input", applyFiltersAndRender);
+            setFilter.addEventListener("input", applyFiltersAndRender);
             cardList.addEventListener("input", updateAddBtn);
             cardNote.addEventListener("input", updateNoteCounter);
             cardNote.addEventListener("keydown", (e) => {
@@ -1532,6 +1540,7 @@
                     populateNameFilters();
                     applyFiltersAndRender();
                     backfillMetadata();
+                    backfillSetCodes();
                 } catch (e) {
                     toast("Network error — try Refresh.");
                 }
@@ -1593,6 +1602,59 @@
                     }
                     applyFiltersAndRender();
                 } catch (e) {}
+            }
+
+            // Backfill set_codes (every set code a card name was printed in)
+            // for cards that lack them, so the set code filter works across
+            // all printings. One rate-limited Scryfall search per distinct
+            // name, following pagination (basic lands exceed 175 printings).
+            // Newly added cards are covered too: processAdd ends in
+            // loadEntries(), which re-runs this for names still missing.
+            async function backfillSetCodes() {
+                const missing = new Set();
+                for (const e of allEntries) {
+                    if (!e.card.set_codes) missing.add(e.card.name);
+                }
+                if (!missing.size) return;
+                const updates = [];
+                for (const name of missing) {
+                    const codes = await fetchPrintingSets(name);
+                    if (codes.length) updates.push({ name, set_codes: codes.join(",") });
+                }
+                if (!updates.length) return;
+                try {
+                    await fetch("/api/cards/setcodes", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ cards: updates }),
+                    });
+                    const byName = new Map(updates.map((u) => [u.name, u.set_codes]));
+                    for (const e of allEntries) {
+                        const sc = byName.get(e.card.name);
+                        if (sc) e.card.set_codes = sc;
+                    }
+                    applyFiltersAndRender();
+                } catch (e) {}
+            }
+
+            async function fetchPrintingSets(name) {
+                const q = encodeURIComponent(`!"${name}"`);
+                let url = `https://api.scryfall.com/cards/search?q=${q}&unique=prints`;
+                const codes = new Set();
+                for (let page = 0; page < 10 && url; page++) {
+                    let res;
+                    try {
+                        res = await scryfallFetch(url);
+                    } catch (e) {
+                        break;
+                    }
+                    if (!res.ok) break;
+                    const data = await res.json().catch(() => null);
+                    if (!data || !Array.isArray(data.data)) break;
+                    for (const c of data.data) if (c.set) codes.add(c.set.toUpperCase());
+                    url = data.has_more ? data.next_page : null;
+                }
+                return [...codes].sort();
             }
 
             function colorGroup(colors) {
@@ -1725,6 +1787,7 @@
 
             function applyFiltersAndRender() {
                 const cardF = cardFilter.value.trim().toLowerCase();
+                const setF = setFilter.value.trim().toUpperCase();
                 const colorF = colorFilter.value;
                 const typeF = typeFilter.value;
                 const hide = hideGiver.checked;
@@ -1735,6 +1798,11 @@
                 }
                 const filtered = allEntries.filter((e) => {
                     if (cardF && !e.card.name.toLowerCase().includes(cardF)) return false;
+                    // Prefix match: the requested printing's set or any stored
+                    // printing set code starts with the typed code ("MH" matches
+                    // "MH3"); set_codes may still be empty before the backfill
+                    // completes.
+                    if (setF && !e.card.set.startsWith(setF) && !(e.card.set_codes || "").split(",").some((c) => c.startsWith(setF))) return false;
                     if (colorF && colorGroup(e.card.colors) !== colorF) return false;
                     if (typeF && String(typeGroup(e.card.type_line)) !== typeF) return false;
                     if (seekerSelected.size && !seekerSelected.has(e.seeker)) return false;
