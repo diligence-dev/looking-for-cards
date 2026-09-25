@@ -1406,6 +1406,10 @@
                 }
             }
 
+            function parseSetFromURL() {
+                setFilter.value = new URLSearchParams(location.search).get("set") || "";
+            }
+
             function syncOccasionURL() {
                 const prev = new URLSearchParams(location.search);
                 const next = new URLSearchParams();
@@ -2087,6 +2091,7 @@
                 const p = new URLSearchParams(location.search);
                 const u = p.get("user") || null;
                 parseOccasionsFromURL();
+                parseSetFromURL();
                 if (u && !currentUser) {
                     currentUser = u;
                     showScreenB();
@@ -2111,6 +2116,7 @@
             const params = new URLSearchParams(location.search);
             currentUser = params.get("user") || null;
             parseOccasionsFromURL();
+            parseSetFromURL();
             if (currentUser) {
                 showScreenB();
                 (async () => {
